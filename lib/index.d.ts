@@ -8,7 +8,7 @@ declare module '@deepseek-ai/dsh-llm' {
         };
     }
 }
-export declare const name = "michengai-code-review";
+export declare const name = "dsh-code-review-fork";
 export declare const inject: string[];
 export declare function renderOutcome(result: Outcome, locale?: Locale): string;
 export interface Config {

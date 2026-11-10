@@ -1,3 +1,6 @@
+# 自研 fork 的 bundle patch。
+# id 与 src/index.ts 的 `export const name` 同源（code-review-fork），避免与第三方
+# @michengai/dsh-code-review 的条目重名（两者都注册 /review 命令，不能同时装）。
 - insert:
-    - id: michengai-code-review
-      name: '@michengai/dsh-code-review'
+    - id: dsh-code-review-fork
+      name: '@jackchen13755/dsh-code-review'

@@ -6,6 +6,7 @@ import { SessionId } from '@deepseek-ai/dsh-session';
 import type { SubagentActivation, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent';
 import { PERSONA_PREFIX_SECTION } from '@deepseek-ai/dsh-system-prompt';
 import type {} from '@deepseek-ai/dsh-tools';
+import { resolveSessionCwd } from './cwd.js';
 import { reviewPrompt, type Target } from './request.js';
 import { parseReport, REVIEW_PROMPT, type Report } from './report.js';
 
@@ -87,7 +88,7 @@ interface LegacySubagents {
  * 有 `startActivation` 时走 0.2.1-rc.1：角色与工具过滤在子 Agent `agent/created` 时恢复。
  * 0.2.0-rc 等没有该方法时回退到 `start` 加启动期 `persona` / `toolFilter`。
  */
-export async function runReview(ctx: Context, parent: Agent, target: Target, signal: AbortSignal, timeoutMs?: number, reviewModel?: string, locale: Locale = readHostLocale(ctx)): Promise<Outcome> {
+export async function runReview(ctx: Context, parent: Agent, target: Target, signal: AbortSignal, timeoutMs?: number, reviewModel?: string, locale: Locale = readHostLocale(ctx), cwdOverride?: string): Promise<Outcome> {
   const t = (key: Parameters<typeof translate>[1]) => translate(locale, key);
   const id = randomUUID();
   const combined = timeoutMs === undefined ? signal : AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]);
@@ -96,13 +97,17 @@ export async function runReview(ctx: Context, parent: Agent, target: Target, sig
   let outcome: Outcome = { id, status: 'failed', detail: t('审查未完成。') };
   let abortedEarly = false;
   try {
-    const cwd = parent.session.header.cwd;
+    // 自研修复：实时目录优先；调用方可显式指定（--cwd），用于「会话在 A、改动在 B」的场景。
+    const cwd = cwdOverride ?? (await resolveSessionCwd(ctx, parent, combined));
     if (!cwd) throw new Error(t('会话没有有效 cwd。'));
     const prompt = await reviewPrompt(target, cwd, combined, locale);
     const provider = ctx.subagents.getProvider('spawn');
     if (!provider || provider.inheritsParentContext) throw new Error(t('需要独立上下文的原生 spawn provider。'));
     const persona = `${REVIEW_PROMPT}\n\n${outputLanguage(locale)}`;
-    const deny = delegatedTools.filter(name => ctx.tools.get(name, parent) !== undefined);
+    // 自研修复：按**全局可见性**过滤，而不是父会话可见性。
+    // 上游用 `ctx.tools.get(name, parent)`：父被限制时名单会塌缩，审查子反而拿到专家工具
+    // （递归环的入口）；但也不能无条件 deny——工具不存在时 `restrict()` 会直接抛错。
+    const deny = delegatedTools.filter(name => ctx.tools.get(name) !== undefined);
     const subagents = ctx.subagents as typeof ctx.subagents & Partial<LegacySubagents>;
     let result: SubagentResult;
     if (typeof subagents.startActivation === 'function') {

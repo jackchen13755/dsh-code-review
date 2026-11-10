@@ -5,6 +5,8 @@ import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type {} from '@deepseek-ai/dsh-subagent';
 import { selectTarget } from './selection.js';
+import { extractCwdOption } from './cwd.js';
+import type {} from '@deepseek-ai/dsh-working-directory';
 import { runReview, type Outcome } from './runtime.js';
 import { renderReport } from './report.js';
 import { homedir } from 'node:os';
@@ -21,7 +23,7 @@ declare module '@deepseek-ai/dsh-llm' {
 /** V4 拒绝共享的 `plugin` 来源；用户消息使用插件自己的 kind。 */
 const reviewRequestSource = { kind: 'michengai-code-review' } as const;
 
-export const name = 'michengai-code-review';
+export const name = 'dsh-code-review-fork';
 export const inject = ['commands', 'subagents', 'agents', 'tools', 'systemPrompt', 'sessions', 'userQuestions'];
 const labels: Record<Outcome['status'], Parameters<typeof translate>[1]> = { 'no-changes': '无变更', 'completed-clean': '完成 · 零发现', 'completed-findings': '完成 · 有发现', 'completed-text': '完成', partial: '部分覆盖', failed: '失败', interrupted: '中断', 'invalid-output': '输出无效', stale: '快照过期' };
 export function renderOutcome(result: Outcome, locale: Locale = 'zh'): string {
@@ -91,6 +93,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     } });
 
   async function review(agent: Agent, input: string, signal: AbortSignal): Promise<string> {
+    // 自研扩展：`/review --cwd <path> ...` 显式指定要审的工作树。
+    const { cwd: cwdOverride, rest } = extractCwdOption(input);
     const locale = readHostLocale(ctx);
     const t = (key: Parameters<typeof translate>[1]) => translate(locale, key);
     if (active.has(agent.id)) throw new Error(t('当前会话已有审查运行，请等待或 /review-cancel。'));
@@ -99,14 +103,14 @@ export function apply(ctx: Context, config: Config = {}): void {
     let started = false;
     try {
       const combined = AbortSignal.any([controller.signal, lifetime.signal, signal]);
-      const target = await selectTarget(ctx, agent, input, combined, locale);
+      const target = await selectTarget(ctx, agent, rest, combined, locale, cwdOverride);
       combined.throwIfAborted();
       try {
         await journal.write(agent.id, { version: 1, state: 'running', commandId: 'review' }, locale);
         started = true;
         await ctx.sessions.flush(agent.session);
       } catch (error) { throw new Error(`${t('审查启动记录持久化失败：')}${String(error)}${t('；未调用子模型。')}`); }
-      const result = await runReview(ctx, agent, target, combined, undefined, config.reviewModel, locale);
+      const result = await runReview(ctx, agent, target, combined, undefined, config.reviewModel, locale, cwdOverride);
       let durable;
       try {
         await journal.write(agent.id, { version: 1, state: 'finished', result }, locale);

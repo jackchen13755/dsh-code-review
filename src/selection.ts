@@ -3,9 +3,10 @@ import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-questions';
 import { git, parseTarget, type Target } from './request.js';
+import { resolveSessionCwd } from './cwd.js';
 
 /** 复用宿主的问题服务；选择过程属于主 Agent，审查子 Agent 不向用户提问。 */
-export async function selectTarget(ctx: Context, agent: Agent, input: string, signal: AbortSignal, locale: Locale = readHostLocale(ctx)): Promise<Target> {
+export async function selectTarget(ctx: Context, agent: Agent, input: string, signal: AbortSignal, locale: Locale = readHostLocale(ctx), cwdOverride?: string): Promise<Target> {
   const t = (key: Parameters<typeof translate>[1]) => translate(locale, key);
   if (input.trim()) return parseTarget(input, locale);
   const ask = async (question: AskUserQuestionItem) => {
@@ -27,7 +28,7 @@ export async function selectTarget(ctx: Context, agent: Agent, input: string, si
   if (choice === t('审查未提交的更改')) return { mode: 'worktree' };
   if (choice === t('自定义审查要求')) return parseTarget(await ask({ id: 'review-instructions', question: t('请输入自定义审查要求') }), locale);
   if (![t('对比基准分支'), t('审查某次提交')].includes(choice)) return parseTarget(choice, locale);
-  const cwd = agent.session.header.cwd;
+  const cwd = cwdOverride ?? (await resolveSessionCwd(ctx, agent, signal));
   if (!cwd) throw new Error(t('当前会话没有工作目录。'));
   if (choice === t('对比基准分支')) {
     const branches = (await git(cwd, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'], signal)).toString('utf8').trim().split('\n').filter(Boolean);
