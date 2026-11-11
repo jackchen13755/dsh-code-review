@@ -9,6 +9,7 @@ import type {} from '@deepseek-ai/dsh-tools';
 import { resolveSessionCwd } from './cwd.js';
 import { reviewPrompt, type Target } from './request.js';
 import { parseReport, REVIEW_PROMPT, type Report } from './report.js';
+import { collectSessionScope, sessionScopeBlock } from './session-scope.js';
 
 // 旧状态仅为历史报告兼容；新运行不再生成快照、过期或插件自定覆盖判断。
 export type Status = 'no-changes' | 'completed-clean' | 'completed-findings' | 'completed-text' | 'partial' | 'failed' | 'interrupted' | 'invalid-output' | 'stale';
@@ -104,7 +105,11 @@ export async function runReview(ctx: Context, parent: Agent, target: Target, sig
     // 自研修复：实时目录优先；调用方可显式指定（--cwd），用于「会话在 A、改动在 B」的场景。
     const cwd = cwdOverride ?? (await resolveSessionCwd(ctx, parent, combined));
     if (!cwd) throw new Error(t('会话没有有效 cwd。'));
-    const prompt = await reviewPrompt(target, cwd, combined, locale);
+    // R3：把会话身份与最近意图写进提示词。审查子 Agent 是独立会话，拿不到父会话
+    // 任何身份；同一分支上并行多个会话时，`git diff` 看到的是同一棵树，评审会
+    // 对着 A 的意图去评 B 的改动、且两份报告无从归属——这就是「串评审」。
+    const scope = collectSessionScope(parent, cwd);
+    const prompt = await reviewPrompt(target, cwd, combined, locale) + sessionScopeBlock(scope);
     const provider = ctx.subagents.getProvider('spawn');
     if (!provider || provider.inheritsParentContext) throw new Error(t('需要独立上下文的原生 spawn provider。'));
     const persona = `${REVIEW_PROMPT}\n\n${outputLanguage(locale)}`;

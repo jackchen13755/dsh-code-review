@@ -338,7 +338,16 @@ test('真实 AgentLoop 独立历史、保留宿主提示和原生角色、报告
   s.ctx.systemPrompt.section({ name: 'ordinary-context', order: 10, text: 'MAIN_SECRET_PROMPT' });
   const result = await s.run('/review');
   assert.equal(result.result.kind, 'success'); assert.match(result.result.text, /完成 · 零发现/);
-  assert.equal(s.requests.length, 1); assert.ok(!JSON.stringify(s.requests).includes('PARENT_SECRET_HISTORY'));
+  assert.equal(s.requests.length, 1);
+  // R3 契约变更（2026-11-11）：会话摘要**有意**进入提示词——同分支多会话必须能区分
+  // 「这次评审属于谁、用户在要求什么」，否则会对着 A 的意图评 B 的改动。
+  // 但「继承父会话历史」仍然禁止，所以把粗断言换成精确断言：
+  // 父会话内容**只能**出现在 Session scope 段里，其它位置一律不许出现。
+  const raw = JSON.stringify(s.requests);
+  const scopeIdx = raw.indexOf('## Session scope');
+  const secretIdx = raw.indexOf('PARENT_SECRET_HISTORY');
+  assert.ok(scopeIdx >= 0, '必须带会话摘要段（R3）');
+  assert.ok(secretIdx > scopeIdx, '父会话内容只能出现在摘要段内，不得整体继承历史');
   assert.ok(JSON.stringify(s.requests).includes('MAIN_SECRET_PROMPT'), '保留宿主系统提示，只有会话历史独立');
   assert.ok(!JSON.stringify(s.requests).includes('PARENT_PERSONA'), '原生 persona 仅替换角色');
   assert.match(JSON.stringify(s.requests), /permission scope was fixed/);
