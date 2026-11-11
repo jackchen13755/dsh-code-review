@@ -62,13 +62,13 @@ test('审查开始后切换语言不改变本轮选择，报告字段和路径�
 });
 test('英文宿主反馈和失败信息跟随语言，缺少 settings 默认中文', async t => {
   const s = await setup(t, empty, { locale: 'en', error: true });
-  assert.equal(s.ctx.tools.get('dsh_code_review', s.parent), undefined);
+  assert.ok(s.ctx.tools.get('dsh_code_review', s.parent));
   assert.equal(s.ctx.tools.get('code_review', s.parent), undefined);
   assert.match((await s.command('/review-cancel')).result.text, /No review is running/);
   assert.match((await s.command('/review-status')).result.text, /No saved review result/);
   assert.match((await s.run('/review custom instructions')).result.text, /Code review · Failed/);
   const fallback = await setup(t);
-  assert.equal(fallback.ctx.tools.get('dsh_code_review', fallback.parent), undefined);
+  assert.ok(fallback.ctx.tools.get('dsh_code_review', fallback.parent));
   await fallback.run('/review 自定义要求');
   assert.match(JSON.stringify(fallback.requests[0].messages), /Write user-facing review content in Simplified Chinese/);
 });
@@ -241,10 +241,40 @@ async function setup(t, response = empty, opts = {}) {
     } };
 }
 
-test('审查对齐 Codex 设计：不向主 Agent 注册全局工具，避免模型在写代码时自发调用', async t => {
+// 契约在 2026-11-11 反转：I010 把「不注册工具」当契约（Issue #3：模型写代码时自发调用），
+// 现在用户要求 agent 也能触发评审，于是工具恢复。**但防自发失控的约束没有取消**，
+// 而是从「工具不存在」换成了三条硬约束，本用例钉住其中两条可静态验证的：
+//   1. 主会话拿得到工具（否则 agent 无法触发，本需求没实现）；
+//   2. 旧名 code_review 不注册（避免模型/文档里出现过时名字，静默失配）。
+// 递归那条（审查子代理拿不到）由下面「审查子代理保留宿主工具 X」的用例覆盖。
+// 本需求（agent 可触发评审）的核心验收：不是「工具存在」，而是「调下去真能拿到报告」。
+// 只断言 get() 非空会形成假绿——历史上那版裸对象 register 就注册不上，但存在性断言写法
+// 一旦写错同样会通过。所以这里真的执行一次 execute。
+test('agent 调用 dsh_code_review 能拿到报告，且不走 followup 重复投递', async t => {
+  const s = await setup(t, empty);
+  const tool = s.ctx.tools.get('dsh_code_review', s.parent);
+  assert.ok(tool && typeof tool.execute === 'function', '工具必须可执行，不能只是存在');
+  const before = s.parent.session.snapshotEvents().length;
+  const value = await tool.execute(
+    { input: '审查未提交的更改' },
+    { callId: 'agent-call-1', name: 'dsh_code_review', arguments: { input: '审查未提交的更改' }, signal: new AbortController().signal, agent: s.parent },
+  );
+  assert.equal(typeof value?.report, 'string');
+  assert.match(value.report, /代码审查/);
+  // 工具路径把报告作为**工具结果**返回；若同时走 followup，同一份报告会投递两次。
+  const delivered = s.parent.session.snapshotEvents()
+    .slice(before)
+    .filter(e => e.type === 'user/message' && JSON.stringify(e.data).includes('code review report'));
+  assert.equal(delivered.length, 0, '命令路径才 followup；工具路径重复投递会污染会话历史');
+});
+
+test('评审工具对主会话可用（agent 可触发），且不注册过时的 code_review 别名', async t => {
   const s = await setup(t);
   assert.equal(s.ctx.tools.get('code_review', s.parent), undefined);
-  assert.equal(s.ctx.tools.get('dsh_code_review', s.parent), undefined);
+  const tool = s.ctx.tools.get('dsh_code_review', s.parent);
+  assert.ok(tool, '主会话必须能拿到 dsh_code_review，否则 agent 无法触发评审');
+  // 描述必须写明「一次性终态、失败不自动重试」，否则模型会把失败当可重试事件反复触发。
+  assert.match(String(tool.description), /不要自动重试/);
 });
 
 test('新审查启动记录使用 review 命令标识', async t => {
@@ -293,7 +323,7 @@ test('斜杠命令直接驱动原生 spawn 子 Agent，不经过主会话模型�
   const childRequest = children[0].find(event => event.type === 'user/message');
   assert.equal(childRequest.data.content.find(block => block.type === 'text').text, instructions);
   assert.equal(s.requests.length, 1);
-  assert.equal(s.ctx.tools.get('dsh_code_review', s.parent), undefined);
+  assert.ok(s.ctx.tools.get('dsh_code_review', s.parent));
 });
 
 test('真实 AgentLoop 独立历史、保留宿主提示和原生角色、报告重放与清理', async t => {
@@ -441,7 +471,10 @@ test('审查中断与失败时返回 error 结果并输出本地化说明', asyn
   assert.match(result.result.text, /失败/);
 });
 
-test('/review 命令直调杜绝模型自发调用与死锁，并在会话中自动呈现报告', async t => {
+// 原用例名含「杜绝模型自发调用」——该前提已在 2026-11-11 反转（工具恢复，模型可自发调用）。
+// 保留的是它与「死锁/自动呈现」相关的那部分：命令路径仍必须**异步投递**报告，
+// 不能在 handler 里阻塞等报告（那会让输入框冻结，I010 的 P1）。
+test('/review 命令仍走异步投递：秒回提交、报告自动呈现在会话中', async t => {
   const s = await setup(t, empty);
   const result = await s.command('/review 检查边界');
   assert.equal(result.result.kind, 'success');
@@ -450,7 +483,7 @@ test('/review 命令直调杜绝模型自发调用与死锁，并在会话中自
   await s.parent.whenIdle();
   const events = s.parent.session.snapshotEvents();
   assert.ok(events.some(e => e.type === 'assistant/message' && JSON.stringify(e.data).includes('完成 · 零发现')));
-  assert.equal(s.ctx.tools.get('dsh_code_review', s.parent), undefined);
+  assert.ok(s.ctx.tools.get('dsh_code_review', s.parent));
 });
 test('持久化后端失败明确返回错误', async t => {
   const s = await setup(t);

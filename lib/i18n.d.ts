@@ -21,6 +21,8 @@ declare const en: {
     readonly 快照过期: "Stale snapshot";
     readonly '\u5BA1\u67E5\u672A\u5B8C\u6210\u3002': "Review did not complete.";
     readonly '\u5BA1\u67E5\u5B8C\u6210\u3002': "Review completed.";
+    readonly '\u4EE3\u7801\u5BA1\u67E5\u5FC5\u987B\u4ECE\u5F53\u524D\u4F1A\u8BDD\u8C03\u7528\u3002': "Code review must be invoked from the current session.";
+    readonly 'input \u5FC5\u987B\u662F\u5B57\u7B26\u4E32\u3002': "input must be a string.";
     readonly '\u4F1A\u8BDD\u6CA1\u6709\u6709\u6548 cwd\u3002': "The session has no valid cwd.";
     readonly '\u9700\u8981\u72EC\u7ACB\u4E0A\u4E0B\u6587\u7684\u539F\u751F spawn provider\u3002': "A native spawn provider with an independent context is required.";
     readonly '\u539F\u751F\u5B50 Agent \u672A\u5B8C\u6210\uFF1A': "The native subagent did not complete: ";

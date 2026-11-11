@@ -12,6 +12,7 @@ import { renderReport } from './report.js';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { defineTool } from '@deepseek-ai/dsh-tools';
 import { Journal } from './journal.js';
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -91,6 +92,53 @@ export function apply(ctx: Context, config: Config = {}): void {
         .finally(() => operations.delete(operation));
       return { kind: 'success', text: translate(locale, '已将审查请求提交到当前会话，将通过原生子 Agent 执行。') };
     } });
+
+  // ---- 模型可调用评审工具（2026-11-11 恢复，用户选定 A 路线）-------------------
+  //
+  // 历史：I010（提交 1932bda）刻意删除本工具，理由是 Issue #3「Agent 会自动触发
+  // review」+ 对齐 Codex 的 disable-model-invocation。现在用户明确要求让 agent
+  // 也能触发，于是恢复——但**不靠模型自觉**，而靠三条硬约束兜住当初的问题：
+  //
+  //  1. 递归：审查子 Agent 拿不到本工具（runtime.ts 的 delegatedTools deny），
+  //     否则「评审里再评审」就是自激环，即用户点名要杜绝的无限循环。
+  //  2. 单飞：与 /review 共用 `active` Map，同会话不可能并发两份评审。
+  //  3. 失败即抛：failed/interrupted/invalid-output/stale 仍抛 HarnessError，
+  //     门禁据此判「调了但失败」，不会被当成评审通过（假绿）。
+  //
+  // 与 /review 的差别只有投递方式：工具把报告作为**工具结果**返回，模型当场
+  // 能读能改；命令走 agent.followup 后台投递，不冻结输入框。两条路不同时走，
+  // 避免同一份报告被投递两次。
+  //
+  // 必须用 defineTool 包装，且 parameters 是「字段名 → 字段描述」的扁平映射，
+  // 不是 JSON Schema 的 {type:'object',properties}——裸对象在当前宿主上注册不成功
+  // （dsh-review-gate/lib/index.js:280 记录了这个用真实故障换来的教训）。
+  if (ctx.tools && typeof ctx.tools.register === 'function' && typeof ctx.effect === 'function') {
+    const reviewTool = defineTool({
+      name: 'dsh_code_review',
+      description: '对当前会话未提交的改动跑一次独立代码审查（Codex 规范，由原生子 Agent 执行），返回完整报告。'
+        + '这是一次性终态工具：同一轮里失败或中断就直接如实报告，不要自动重试。'
+        + 'input 为空字符串时通过原生问题选择审查范围；非空时整段作为自定义审查要求，不解析 CLI 选项。'
+        + '需要指定别的工作树时用 /review --cwd <绝对路径> 命令，本工具不接受目录参数。',
+      parameters: {
+        input: { type: 'string', description: '空字符串＝打开范围选择；非空＝完整的自定义审查要求，保留原文。' },
+      },
+      output: {
+        schema: { type: 'object', additionalProperties: true, properties: { report: { type: 'string' } } },
+        render: (_args, value) => [{ type: 'text', text: String((value as { report?: unknown })?.report ?? '') }],
+      },
+      async execute(args, exec) {
+        const agent = exec.agent;
+        if (!agent) throw new Error(t('代码审查必须从当前会话调用。'));
+        const input = (args as { input?: unknown }).input;
+        if (typeof input !== 'string') throw new Error(t('input 必须是字符串。'));
+        const operation = review(agent, input, exec.signal);
+        operations.add(operation);
+        void operation.then(() => operations.delete(operation), () => operations.delete(operation));
+        return { report: await operation };
+      },
+    });
+    ctx.effect(() => ctx.tools.register(reviewTool));
+  }
 
   async function review(agent: Agent, input: string, signal: AbortSignal): Promise<string> {
     // 自研扩展：`/review --cwd <path> ...` 显式指定要审的工作树。

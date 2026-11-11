@@ -14,7 +14,11 @@ import { parseReport, REVIEW_PROMPT, type Report } from './report.js';
 export type Status = 'no-changes' | 'completed-clean' | 'completed-findings' | 'completed-text' | 'partial' | 'failed' | 'interrupted' | 'invalid-output' | 'stale';
 export interface Outcome { id: string; status: Status; detail: string; fingerprint?: string; base?: string; target?: string; report?: Report; raw?: string }
 // 与 Agency 专家一致：角色由 provider 组合，禁止递归召唤专家，权限由宿主委派。
-const delegatedTools = ['summon_expert', 'summon_experts', 'list_experts', 'list_expert_teams', 'get_expert_team', 'summon_expert_team'];
+// `dsh_code_review` 必须在这里：它 2026-11-11 重新注册为模型工具（用户选择 A 路线），
+// 评审子 Agent 继承主会话工具面，若不 deny 就会出现「审查子 Agent 再调审查」的自激环，
+// 也就是用户明确要求杜绝的「评审里触发评审 → 无限循环」。
+// 注意 `ctx.tools.get` 过滤器（下方 :deny 计算）会在工具不存在时自动剔除该名字。
+const delegatedTools = ['summon_expert', 'summon_experts', 'list_experts', 'list_expert_teams', 'get_expert_team', 'summon_expert_team', 'dsh_code_review'];
 
 function formatAbortReason(reason: unknown, locale: Locale = 'zh'): string {
   const t = (key: Parameters<typeof translate>[1]) => translate(locale, key);
