@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFile, readFile, mkdtemp, rm } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -321,7 +322,10 @@ test('斜杠命令直接驱动原生 spawn 子 Agent，不经过主会话模型�
   assert.equal(starts.length, 1); assert.equal(ends.length, 1);
   assert.ok(children[0].some(event => event.type === 'subagent/descriptor'));
   const childRequest = children[0].find(event => event.type === 'user/message');
-  assert.equal(childRequest.data.content.find(block => block.type === 'text').text, instructions);
+  const childPrompt = childRequest.data.content.find(block => block.type === 'text').text;
+  // 用户原话必须一字不改地排在提示词最前面；目录定位行追加在后面（见 request.ts 说明）。
+  assert.ok(childPrompt.startsWith(instructions), '自定义要求必须原文保留在前');
+  assert.match(childPrompt, /repository under review is at: /, '必须追加被审仓库目录');
   assert.equal(s.requests.length, 1);
   assert.ok(s.ctx.tools.get('dsh_code_review', s.parent));
 });
@@ -561,7 +565,10 @@ for (const [label, id] of [['对比基准分支', 'review-base'], ['审查某次
     assert.equal(s.questions.length, 2);
     assert.equal(s.requests.length, 1);
     const data = s.requests[0].messages.filter(m => m.role === 'user').flatMap(m => m.content).find(b => b.type === 'text').text;
-    if (id === 'review-instructions') assert.equal(data, instructions);
+    if (id === 'review-instructions') {
+      assert.ok(data.startsWith(instructions), '自定义要求原文保留在前');
+      assert.match(data, /repository under review is at: /);
+    }
     if (id === 'review-base') assert.match(data, /Run `git diff [a-f0-9]{40}`/);
     if (id === 'review-commit') assert.match(data, /commit [a-f0-9]{40}/);
   });
@@ -630,7 +637,7 @@ test('自定义历史要求不会被工作区无变更短路，也不预读仓�
   const instruction = '审查上一提交，请自行检查 git show HEAD';
   assert.equal((await s.run('/review ' + instruction)).result.kind, 'success');
   assert.equal(s.requests.length, 1);
-  assert.equal(s.requests[0].messages.filter(m => m.role === 'user')[0].content[0].text, instruction);
+  assert.ok(s.requests[0].messages.filter(m => m.role === 'user')[0].content[0].text.startsWith(instruction), '自定义要求原文保留在前');
 });
 
 test('subagent 仅在父子 Agent 本地注册时仍可启动审查，局部委派可以执行', async t => {
@@ -676,7 +683,9 @@ test('没有 startActivation 的宿主仍用 start 完成审查，并带上角�
   assert.equal(starts[0].name, 'spawn');
   assert.equal(starts[0].request.label, '代码审查');
   assert.equal(starts[0].request.parent, parent);
-  assert.equal(starts[0].request.prompt[0].text, '检查边界');
+  assert.ok(starts[0].request.prompt[0].text.startsWith('检查边界'), '自定义要求原文保留在前');
+  // 旧宿主也要带出目录：cwd 字段在这条路径上不被支持，只能靠提示词定位。
+  assert.match(starts[0].request.prompt[0].text, /repository under review is at: D:\/review-old-host/);
   assert.equal(starts[0].request.agentOptions.model, 'legacy-model');
   assert.match(starts[0].request.persona, /Write user-facing review content in Simplified Chinese/);
   assert.deepEqual(starts[0].request.toolFilter.deny, ['summon_expert']);
@@ -696,4 +705,36 @@ test('命令目录提供中英文描述', async t => {
     'review-status': 'Show the latest code review report',
     'review-cancel': 'Cancel the current code review',
   });
+});
+
+// R1 的验收载体：会话目录 ≠ 被审仓库时，审查子 Agent 必须知道**去哪个目录**跑 git。
+//
+// 这里刻意不把「子 Agent 的 cwd 等于目标仓库」当成契约：本插件走 in-process spawn
+// provider，`SubagentStartRequest.cwd` 字段虽在类型里，但 dsh-subagent-spawn-in-process
+// 整个包没有实现它，子 Agent 永远继承父会话目录（已实测：断言 childCwd===other 必红）。
+// 所以定位责任落在**提示词**上——断言提示词里出现目标绝对路径与 `git -C` 指令。
+//
+// 关键设计：父会话目录故意与目标不同，否则「继承来的目录」也等于目标，断言就失去鉴别力。
+test('--cwd 指定的仓库会被写进审查提示词（会话在 A、改动在 B）', async t => {
+  const s = await setup(t);
+  const other = await mkdtemp(join(tmpdir(), 'dsh-review-other-'));
+  t.after(() => rm(other, { recursive: true, force: true }));
+  const gitIn = (...args) => execFileSync('git', args, { cwd: other, stdio: 'ignore' });
+  gitIn('init', '-b', 'main');
+  gitIn('config', 'user.email', 'test@example.invalid');
+  gitIn('config', 'user.name', 'Test');
+  await writeFile(join(other, 'b.ts'), 'old\n');
+  gitIn('add', '.');
+  gitIn('commit', '-qm', 'init');
+  await writeFile(join(other, 'b.ts'), 'new\n');
+
+  const result = await s.run(`/review --cwd "${other}" 审查未提交的更改`);
+  assert.equal(result.result.kind, 'success', result.result.text);
+
+  const prompt = s.requests[0].messages
+    .filter(m => m.role === 'user').flatMap(m => m.content)
+    .filter(b => b.type === 'text').map(b => b.text).join('\n');
+  assert.ok(prompt.includes(other), '提示词里必须出现被审仓库的绝对路径');
+  assert.ok(prompt.includes(`git -C ${other}`), '要给出可直接执行的 git -C 指令，别让 Agent 自己猜');
+  assert.ok(!prompt.includes(`repository under review is at: ${s.root}`), '不能仍然指向父会话目录（R1 故障形态）');
 });
