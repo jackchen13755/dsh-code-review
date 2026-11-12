@@ -3,7 +3,9 @@ import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import { resolveApiUrl } from '../api-base.js'
 import type { EntryLocation } from '../settings-compat.js'
 
-export const BUNDLE_KEY = '@michengai/dsh-agency-agents'
+// 必须与 profile 里该插件行的 `name`（包名）一致：宿主按它把 bundle 配置卡挂到对应插件。
+// 改名后旧值会让设置卡片挂到一条不存在的插件上（宿主不给报错，只是不显示）。
+export const BUNDLE_KEY = '@jackchen13755/dsh-expert-agents'
 export const SIDEBAR_PANEL_ID = 'agency-agents'
 export const SIDEBAR_PANEL_ORDER = 4
 

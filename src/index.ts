@@ -627,9 +627,32 @@ async function readJsonBody(request: { on(event: string, listener: (...args: unk
   })
 }
 
+/**
+ * 设置段的候选命名空间。
+ *
+ * ns 与插件身份同源（bundle patch 行 id / 包名末段）。本项目从
+ * `@michengai/dsh-agency-agents` 改名为 `@jackchen13755/dsh-expert-agents`，
+ * 宿主注册的段名随之从 `agency-agents` 变成 `expert-agents`；代码里仍硬编码旧名时，
+ * `ctx.settings.describe()` 找不到描述符 → 抛 "agency-agents settings section is not
+ * registered"，表现为**所有召唤工具直接失败**（实测踩到，重启后第一次 summon_expert）。
+ * 所以按候选表对齐宿主实际注册的那个，改名与旧身份下都能跑。
+ */
+const SETTINGS_NS_CANDIDATES = ['expert-agents', 'agency-agents'] as const
+
+function resolveSettingsNamespace(ctx: Context) {
+  let available: string[] = []
+  try {
+    available = ctx.settings.describe().map(item => String(item.ns))
+  } catch {
+    // describe 不可用（更老的宿主）→ 退回候选首项
+  }
+  const hit = SETTINGS_NS_CANDIDATES.find(ns => available.includes(ns))
+  return settingsNamespaceCompat(hit ?? SETTINGS_NS_CANDIDATES[0])
+}
+
 export function apply(ctx: Context, config: Config): void {
   const maxDepth = normalizeMaxDepth(config.maxDepth)
-  const settingsNamespace = settingsNamespaceCompat('agency-agents')
+  const settingsNamespace = resolveSettingsNamespace(ctx)
   let settingsSource: () => AgencySettings = () => ({ enabled: [], customExperts: [] })
   const enabledSet = (): ReadonlySet<string> => new Set(settingsSource().enabled)
   const activeLocale = createHostLocaleReader(ctx)
