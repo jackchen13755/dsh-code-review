@@ -6,6 +6,35 @@ import { readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { validateAgencySettings, type AgencySettings } from './expert-library.js'
 
+/**
+ * 设置段 ns 的候选表。
+ *
+ * ns 与插件身份同源（bundle patch 行 id / 包名末段）。本项目从 @michengai/dsh-agency-agents
+ * 改名为 @jackchen13755/dsh-expert-agents，宿主注册的段名随之变化；代码里若写死任一种，另一种身份下
+ * describe() 会找不到描述符并抛 "…settings section is not registered"，
+ * 表现为所有召唤工具与设置读写直接失败（2026-11-12 实跑踩到）。
+ */
+const SETTINGS_NS_CANDIDATES = ['expert-agents', 'agency-agents'] as const
+
+/**
+ * 解析宿主**实际注册**的设置段 ns，而不是猜一种形态：
+ * ① 精确命中候选；② 子串命中（覆盖完整包名形态）；③ 兜底新身份。
+ * describe() 不可用（更老的宿主）时静默走兜底。
+ */
+export function resolveSettingsNamespace(ctx: Context) {
+  let available: string[] = []
+  try {
+    available = ctx.settings.describe().map(item => String(item.ns))
+  } catch {
+    // 宿主没有 describe → 兜底
+  }
+  const exact = SETTINGS_NS_CANDIDATES.find(ns => available.includes(ns))
+  if (exact !== undefined) return settingsNamespaceCompat(exact)
+  const fuzzy = available.find(ns => SETTINGS_NS_CANDIDATES.some(candidate => ns.includes(candidate)))
+  if (fuzzy !== undefined) return settingsNamespaceCompat(fuzzy)
+  return settingsNamespaceCompat(SETTINGS_NS_CANDIDATES[0])
+}
+
 /** 0.2.x 的命名空间就是校验过的字符串，不再调用已删除的 settingsNamespace()。 */
 export function settingsNamespaceCompat(value: string): SettingsNamespace {
   return value as SettingsNamespace

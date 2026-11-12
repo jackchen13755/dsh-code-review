@@ -10,13 +10,14 @@ import { AGENCY_AGENTS_DESCRIPTORS } from './remote-contract.js'
 import { AGENCY_PERSONA_SERVICE, type AgencyPersonaSource } from './index.js'
 import { formatHost, readHostLocale } from './i18n.js'
 import type { ProposalRegistry, StoredProposal, LatestProposal } from './creation-tools.js'
-import { settingsNamespaceCompat } from './settings-compat.js'
+import { resolveSettingsNamespace } from './settings-compat.js'
 import { AGENCY_LIBRARY_SERVICE, type AgencyExpertLibrary } from './expert-library.js'
 import type { CatalogSnapshot, CustomExpertInput } from './expert-contract.js'
 
 export { readExpertPrompt, readLocalizedExpertPrompt } from './index.js'
 
-const AGENCY_SETTINGS_NAMESPACE = settingsNamespaceCompat('agency-agents')
+// 设置段 ns 随插件身份变化，统一走解析器（写死会在改名后抛 settingsMissing）。
+const agencySettingsNamespace = (ctx: Context) => resolveSettingsNamespace(ctx)
 
 function personaSource(ctx: Context): AgencyPersonaSource {
   try {
@@ -33,7 +34,7 @@ function personaSource(ctx: Context): AgencyPersonaSource {
  * 后加载的外部插件服务。
  */
 const TYPERT = {
-  package: '@michengai/dsh-agency-agents',
+  package: '@jackchen13755/dsh-expert-agents',
   face: 'host',
   schemas: [],
   model: { services: [], events: [], objects: [] },
@@ -98,14 +99,15 @@ export default class AgencyAgentsRemote extends TypertRemoteService {
   /** 返回配置中记录的启用项以兼容旧调用方；实际可召唤项请读取 getCatalog().enabled。 */
   @Remote('getEnabled')
   getEnabled(): { enabled: string[]; revision: number } {
+    const namespace = agencySettingsNamespace(this.ctx)
     const settings = this.ctx.settings as {
-      get?: (namespace: typeof AGENCY_SETTINGS_NAMESPACE) => unknown
-      describe: () => ReadonlyArray<{ ns: typeof AGENCY_SETTINGS_NAMESPACE; revision: number; value?: { enabled?: unknown } }>
+      get?: (ns: string) => unknown
+      describe: () => ReadonlyArray<{ ns: string; revision: number; value?: { enabled?: unknown } }>
     }
-    const descriptor = settings.describe().find((candidate) => candidate.ns === AGENCY_SETTINGS_NAMESPACE)
+    const descriptor = settings.describe().find((candidate) => candidate.ns === namespace)
     if (descriptor === undefined) throw new Error(formatHost('zh', 'error.settingsMissing'))
     const stored = typeof settings.get === 'function'
-      ? settings.get(AGENCY_SETTINGS_NAMESPACE) as { enabled?: unknown } | undefined
+      ? settings.get(namespace) as { enabled?: unknown } | undefined
       : descriptor.value
     const enabled = stored?.enabled
     return {

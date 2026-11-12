@@ -106,5 +106,15 @@ declare function resolveExpert<T extends {
   readonly name: string;
   readonly nameEn?: string;
 }>(experts: readonly T[], query: unknown, locale?: LocaleId): T;
+/**
+ * 设置段的候选命名空间。
+ *
+ * ns 与插件身份同源（bundle patch 行 id / 包名末段）。本项目从
+ * `@michengai/dsh-agency-agents` 改名为 `@jackchen13755/dsh-expert-agents`，
+ * 宿主注册的段名随之从 `agency-agents` 变成 `expert-agents`；代码里仍硬编码旧名时，
+ * `ctx.settings.describe()` 找不到描述符 → 抛 "agency-agents settings section is not
+ * registered"，表现为**所有召唤工具直接失败**（实测踩到，重启后第一次 summon_expert）。
+ * 所以按候选表对齐宿主实际注册的那个，改名与旧身份下都能跑。
+ */
 declare function apply(ctx: Context, config: Config): void;
 export { stripBom as C, validateSummonSpecs as D, unquote as E, ZH_NAME as O, sanitize as S, truncate as T, parseFrontmatter as _, SUMMON_EXPERTS_CONCURRENCY as a, resolveCatalogRoot as b, SummonExpertItemResult as c, createAgencyPersonaSource as d, inject as f, name as g, mapPool as h, DEFAULT_DIVISIONS as i, SummonExpertSpec as l, loadCatalog as m, AgencyPersonaSource as n, SUMMON_EXPERTS_MAX as o, liveSchemaField as p, Config as r, SUMMON_TASK_MAX_CHARS as s, AGENCY_PERSONA_SERVICE as t, apply as u, readExpertPrompt as v, toSummonItemResult as w, resolveExpert as x, readLocalizedExpertPrompt as y };

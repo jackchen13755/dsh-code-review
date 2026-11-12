@@ -49,7 +49,7 @@ import { TextDecoder } from 'node:util'
 import { ZH_DIVISION, ZH_NAME } from './names.js'
 export { ZH_NAME }
 import { createHostLocaleReader, formatHost, localizedExpertDescription, localizedExpertName, matchDivision, renderExpertList, renderSummonResults, type LocaleId } from './i18n.js'
-import { isLiveValue, loadHostModule, readAgencySettings, recoverImportedAgencySettings, settingsNamespaceCompat, setAgencySidebarEntry, setAgencyComposerRecommend, getAgencyEntryLocation, setAgencyEntryLocation } from './settings-compat.js'
+import { isLiveValue, loadHostModule, readAgencySettings, recoverImportedAgencySettings, resolveSettingsNamespace, setAgencySidebarEntry, setAgencyComposerRecommend, getAgencyEntryLocation, setAgencyEntryLocation } from './settings-compat.js'
 import { AGENCY_LIBRARY_SERVICE, createExpertLibrary, type AgencySettings } from './expert-library.js'
 import { runReview } from './review/runtime.js'
 import { renderOutcome } from './review/outcome.js'
@@ -637,33 +637,6 @@ async function readJsonBody(request: { on(event: string, listener: (...args: unk
  * registered"，表现为**所有召唤工具直接失败**（实测踩到，重启后第一次 summon_expert）。
  * 所以按候选表对齐宿主实际注册的那个，改名与旧身份下都能跑。
  */
-const SETTINGS_NS_CANDIDATES = ['expert-agents', 'agency-agents'] as const
-
-/**
- * 解析宿主**实际注册**的设置段 ns。
- *
- * 为什么不用一个写死的字符串：实测改名后宿主注册的段名随之变化，而代码里的旧字面量
- * 会让 describe() 找不到描述符 → 抛 "…settings section is not registered" → 所有召唤
- * 工具直接失败。而 ns 究竟取「bundle patch 行 id」「包名末段」还是「完整包名」，属于
- * 宿主实现细节、不该靠猜，所以按三级匹配：
- *   ① 精确命中候选（expert-agents / agency-agents）
- *   ② 子串命中（覆盖完整包名形态，如 @jackchen13755/dsh-expert-agents）
- *   ③ 都没有 → 用新身份兜底，让报错指向正确名字
- */
-export function resolveSettingsNamespace(ctx: Context) {
-  let available: string[] = []
-  try {
-    available = ctx.settings.describe().map(item => String(item.ns))
-  } catch {
-    // describe 不可用（更老的宿主）→ 直接走兜底
-  }
-  const exact = SETTINGS_NS_CANDIDATES.find(ns => available.includes(ns))
-  if (exact !== undefined) return settingsNamespaceCompat(exact)
-  const fuzzy = available.find(ns => SETTINGS_NS_CANDIDATES.some(candidate => ns.includes(candidate)))
-  if (fuzzy !== undefined) return settingsNamespaceCompat(fuzzy)
-  return settingsNamespaceCompat(SETTINGS_NS_CANDIDATES[0])
-}
-
 export function apply(ctx: Context, config: Config): void {
   const maxDepth = normalizeMaxDepth(config.maxDepth)
   const settingsNamespace = resolveSettingsNamespace(ctx)

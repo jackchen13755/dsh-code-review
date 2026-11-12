@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import { resolveSettingsNamespace } from './index.js'
+import { resolveSettingsNamespace } from './settings-compat.js'
 
 /**
  * settings 段 ns 的解析必须靠「宿主实际注册了什么」，不能靠猜。
