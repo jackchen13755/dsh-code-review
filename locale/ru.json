@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "Code Review",
-    "description": "Анализ кода в стиле Codex с независимыми субагентами и многоязычными отчетами.",
+    "title": "Agency Agents",
+    "description": "331 вызываемый профильный агент для DeepSeek Harness.",
     "detail": "README.ru.md"
   }
 }

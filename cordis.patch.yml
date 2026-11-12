@@ -1,6 +1,9 @@
 # 自研 fork 的 bundle patch。
-# id 与 src/index.ts 的 `export const name` 同源（code-review-fork），避免与第三方
-# @michengai/dsh-code-review 的条目重名（两者都注册 /review 命令，不能同时装）。
+# id 与 src/index.ts 的 `export const name` 同源（expert-agents）。
+#
+# 本项目 = 专家插件主体（The Agency 框架：331 位专家 / 专家团 / 设置面板）
+#        + code-review 审查引擎（其中「代码审查专家」走 code-review 的实现）。
+# 基于 Apache-2.0 的 MichengAI/dsh-agency-agents 与 MichengAI/dsh-code-review。
 - insert:
-    - id: dsh-code-review-fork
-      name: '@jackchen13755/dsh-code-review'
+    - id: expert-agents
+      name: '@jackchen13755/dsh-expert-agents'

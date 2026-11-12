@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "Code Review",
-    "description": "Revisão de código no estilo Codex com subagentes independentes e relatórios multilíngues.",
+    "title": "Agency Agents",
+    "description": "331 agentes especialistas invocáveis para DeepSeek Harness.",
     "detail": "README.pt.md"
   }
 }

@@ -1,0 +1,2050 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { Context } from '@deepseek-ai/cordis'
+import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import z from '@deepseek-ai/schemastery'
+import { Config, SUMMON_EXPERTS_CONCURRENCY, SUMMON_EXPERTS_MAX, SUMMON_TASK_MAX_CHARS, apply, inject, liveSchemaField, loadCatalog, createAgencyPersonaSource, mapPool, parseFrontmatter, resolveCatalogRoot, resolveExpert, sanitize, stripBom, toSummonItemResult, truncate, unquote, validateSummonSpecs } from './index.js'
+import AgencyAgentsRemote, { readExpertPrompt, readLocalizedExpertPrompt } from './remote.js'
+import { AGENCY_AGENTS_DESCRIPTORS } from './remote-contract.js'
+import { buildExpertMentionLexicon, buildExpertReference, CARD_SETTINGS_CSS, compareExpertName, COMPOSER_CSS, EXPERT_AVATAR_POOL_INDEXES, expertAvatarIndex, expertAvatarIndexForDivision, expertDivisionFilterValues, expertMentionFromReference, filterExperts, formatExpertMention, formatExpertMentionInsertion, inject as clientInject, inputTriggerCandidateName, inputTriggerPickName, inputTriggerSourceId, inputTriggerSourceName, insertExpertReference, insertSelectedExpert, keepComposerFocus, matchExpertQuery, normalizeExpertQuery, resolveExpertMenuPosition, resolveReferenceInsertionTarget, resolveTargetSessionId, SETTINGS_CSS, SETTINGS_GITHUB_LINKS, sortExpertsByEnabled, sortExpertsByOrder, writeErrorKey, writeErrorMessage } from './client/index.js'
+import { en, zh, type AgencyKey } from './client/locales.js'
+import { ROSTER } from './client/roster.js'
+import { enHost, formatHost, matchDivision, readHostLocale, renderExpertList, renderSummonResults, resolveHostLocale, zhHost } from './i18n.js'
+import { TYPERT_REMOTE } from './client/remote.js'
+import { agencySettingsFromLegacyDocument, loadHostModule, readAgencySettings, recoverImportedAgencySettings, settingsNamespaceCompat } from './settings-compat.js'
+import { clearSubagentRegistryForTest, getSubagentConfig, isManagedSubagentId, initSubagentRegistry, flushSubagentRegistrySync } from './subagent-registry.js'
+
+const PACKAGE_MANIFEST = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
+  packageManager?: string
+  engines?: { node?: string }
+  peerDependencies?: Record<string, string>
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>
+  devDependencies?: Record<string, string>
+  dsh?: { client?: { inject?: string[] } }
+}
+
+function alphaSettings(enabled: readonly string[], locale?: 'zh' | 'en') {
+  return {
+    describe: () => [{ ns: 'agency-agents', revision: 0 }],
+    get: (namespace: string): unknown => {
+      if (namespace === 'agency-agents') return { enabled: [...enabled] }
+      if (namespace === 'locale' && locale !== undefined) return { preference: locale }
+      return undefined
+    },
+  }
+}
+
+/** 测试里的宿主配置走 0.2 volatile 字段；已自带 get() 的配置保持原样。 */
+function applyOnHost(ctx: Context, config: Parameters<typeof apply>[1]): void {
+  const current = config as { enabled?: unknown }
+  if (current.enabled !== null && typeof current.enabled === 'object' && typeof (current.enabled as { get?: unknown }).get === 'function') {
+    apply(ctx, config)
+    return
+  }
+  const settings = (ctx as { settings?: { get?: (ns: string) => { enabled?: string[]; customExperts?: unknown[]; customTeams?: unknown[]; enabledTeams?: string[] } | undefined } }).settings
+  const read = () => settings?.get?.('agency-agents')
+  apply(ctx, {
+    ...config,
+    enabled: { get: () => read()?.enabled ?? [] },
+    customExperts: { get: () => read()?.customExperts ?? [] },
+    customTeams: { get: () => read()?.customTeams ?? [] },
+    enabledTeams: { get: () => read()?.enabledTeams ?? [] },
+  } as Parameters<typeof apply>[1])
+}
+
+describe('Config', () => {
+  it('配置 schema 拒绝零 maxDepth，避免设置界面展示为合法值', () => {
+    expect(() => z.resolve({ maxDepth: 0 }, Config, {})).toThrow()
+  })
+
+  it('配置 schema 允许缺省 maxDepth，解析结果不含该字段', () => {
+    const resolved = z.resolve({}, Config, {})[0] as Record<string, unknown>
+    expect(resolved).not.toHaveProperty('maxDepth')
+  })
+
+  it('默认加载 research 分区', () => {
+    const resolved = z.resolve({}, Config, {})[0] as { divisions: string[] }
+    expect(resolved.divisions).toContain('research')
+  })
+
+  it('宿主插件声明 settings 依赖，避免工具读取 locale 时被 Cordis 拒绝', () => {
+    expect(inject).toEqual(['tools', 'subagents', 'systemPrompt', 'settings', 'webServer'])
+  })
+
+  it('客户端声明会话与会话输入服务，允许工具栏在 session slot 内插入引用', () => {
+    expect(clientInject).toContain('sessions')
+    expect(clientInject).toContain('conversation')
+  })
+})
+
+describe('DSH settings 兼容层', () => {
+  it('没有 volatile 方法时不标记实时字段，避免把用户数据写进会重载插件的普通配置', () => {
+    expect(liveSchemaField({ default: () => 'plain' } as unknown as z<string>)).toBeUndefined()
+    expect(() => readAgencySettings({ enabled: [], customExperts: [{ slug: 'bad' }] })).toThrow()
+  })
+
+  it('从 Linux 全局安装的 bin 垫片解析宿主模块', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'aag-host-prefix-'))
+    const entry = join(root, 'bin', 'dsh')
+    const pkgDir = join(root, 'lib', 'node_modules', '@deepseek-ai', 'schemastery')
+    try {
+      await mkdir(join(root, 'bin'), { recursive: true })
+      await mkdir(pkgDir, { recursive: true })
+      await writeFile(entry, '#!/bin/sh\n', 'utf8')
+      await writeFile(join(pkgDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/schemastery', main: 'index.cjs' }), 'utf8')
+      await writeFile(join(pkgDir, 'index.cjs'), 'module.exports = { marker: "host-schema" }\n', 'utf8')
+      expect(loadHostModule('@deepseek-ai/schemastery', entry)).toEqual({ marker: 'host-schema' })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('从宿主 bin.js 解析同一安装树里的模块', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'aag-host-bin-'))
+    const entry = join(root, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+    const pkgDir = join(root, 'node_modules', '@deepseek-ai', 'schemastery')
+    try {
+      await mkdir(join(root, 'node_modules', '@deepseek-ai', 'dsh', 'lib'), { recursive: true })
+      await mkdir(pkgDir, { recursive: true })
+      await writeFile(entry, '', 'utf8')
+      await writeFile(join(pkgDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/schemastery', main: 'index.cjs' }), 'utf8')
+      await writeFile(join(pkgDir, 'index.cjs'), 'module.exports = { marker: "host-schema" }\n', 'utf8')
+      expect(loadHostModule('@deepseek-ai/schemastery', entry)).toEqual({ marker: 'host-schema' })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('入口不在宿主安装布局时不改用插件自己的依赖', () => {
+    expect(() => loadHostModule('@deepseek-ai/schemastery', join(tmpdir(), 'not-a-dsh-entry'))).toThrow(/Cannot find module/)
+  })
+
+  it('当 process.argv[1] 被 pm2 包装器改写时，回退到 pm_exec_path 解析宿主模块', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'aag-host-pm2-'))
+    const entry = join(root, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+    const pkgDir = join(root, 'node_modules', '@deepseek-ai', 'schemastery')
+    const originalArgv1 = process.argv[1]
+    const originalPmExecPath = process.env.pm_exec_path
+    try {
+      await mkdir(join(root, 'node_modules', '@deepseek-ai', 'dsh', 'lib'), { recursive: true })
+      await mkdir(pkgDir, { recursive: true })
+      await writeFile(entry, '', 'utf8')
+      await writeFile(join(pkgDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/schemastery', main: 'index.cjs' }), 'utf8')
+      await writeFile(join(pkgDir, 'index.cjs'), 'module.exports = { marker: "host-schema-from-pm2" }\n', 'utf8')
+
+      // 模拟 pm2 fork 模式环境：argv[1] 为 pm2 容器，pm_exec_path 为真实 dsh 入口
+      process.argv[1] = join(root, 'fake-pm2', 'lib', 'ProcessContainerFork.js')
+      process.env.pm_exec_path = entry
+
+      expect(loadHostModule('@deepseek-ai/schemastery')).toEqual({ marker: 'host-schema-from-pm2' })
+    } finally {
+      process.argv[1] = originalArgv1
+      if (originalPmExecPath !== undefined) {
+        process.env.pm_exec_path = originalPmExecPath
+      } else {
+        delete process.env.pm_exec_path
+      }
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('当 argv[1] 缺失且无 pm2 环境变量时，回退到 process.mainModule?.filename 解析宿主模块', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'aag-host-main-'))
+    const entry = join(root, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+    const pkgDir = join(root, 'node_modules', '@deepseek-ai', 'schemastery')
+    const originalArgv1 = process.argv[1]
+    const originalPmExecPath = process.env.pm_exec_path
+    const proc = process as { mainModule?: { filename?: string } }
+    const originalMainModule = proc.mainModule
+    try {
+      await mkdir(join(root, 'node_modules', '@deepseek-ai', 'dsh', 'lib'), { recursive: true })
+      await mkdir(pkgDir, { recursive: true })
+      await writeFile(entry, '', 'utf8')
+      await writeFile(join(pkgDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/schemastery', main: 'index.cjs' }), 'utf8')
+      await writeFile(join(pkgDir, 'index.cjs'), 'module.exports = { marker: "host-schema-from-main-module" }\n', 'utf8')
+
+      process.argv[1] = ''
+      delete process.env.pm_exec_path
+      proc.mainModule = { filename: entry }
+
+      expect(loadHostModule('@deepseek-ai/schemastery')).toEqual({ marker: 'host-schema-from-main-module' })
+    } finally {
+      process.argv[1] = originalArgv1
+      if (originalPmExecPath !== undefined) {
+        process.env.pm_exec_path = originalPmExecPath
+      } else {
+        delete process.env.pm_exec_path
+      }
+      proc.mainModule = originalMainModule
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('从 volatile 引用读取启用名单，并关闭自动生成的原始配置表单', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'aag-live-settings-'))
+    const stored = { enabled: ['reviewer'] as string[] }
+    const configured: unknown[] = []
+    const services = new Map<string, { catalog(): Promise<{ enabled: string[]; revision: number }> }>()
+    try {
+      await mkdir(join(root, 'engineering'), { recursive: true })
+      await writeFile(join(root, 'engineering', 'reviewer.md'), '---\nname: Reviewer\ndescription: desc\n---\nPersona', 'utf8')
+      const ctx = {
+        settings: {
+          describe: () => [{ ns: 'agency-agents', revision: 4, value: stored }],
+          mutate: async () => undefined,
+          configure: (policy: unknown) => {
+            configured.push(policy)
+            return () => undefined
+          },
+        },
+        effect: (callback: () => (() => void) | void) => {
+          const dispose = callback()
+          return typeof dispose === 'function' ? dispose : () => undefined
+        },
+        fiber: { id: 'agency-agents' },
+        reflect: { provide: (name: string, value: { catalog(): Promise<{ enabled: string[]; revision: number }> }) => { services.set(name, value) } },
+        tools: { register: () => undefined },
+        subagents: { getProvider: () => undefined },
+        systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+        get: () => undefined,
+      } as unknown as Context
+      applyOnHost(ctx, {
+        root,
+        provider: 'spawn',
+        divisions: ['engineering'],
+        enabled: { get: () => stored.enabled },
+        customExperts: { get: () => [] },
+        customTeams: { get: () => [] },
+        enabledTeams: { get: () => [] },
+      } as unknown as Parameters<typeof apply>[1])
+      await expect(services.get('agencyAgentsLibrary')?.catalog()).resolves.toMatchObject({ enabled: ['reviewer'], revision: 4 })
+      expect(configured).toEqual([{ auto: false }])
+      expect(readAgencySettings({ enabled: { get: () => ['reviewer'] } }).enabled).toEqual(['reviewer'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('已改名的 settings.yaml 在当前配置为空时补写一次', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'aag-legacy-settings-'))
+    const written: unknown[] = []
+    try {
+      await writeFile(join(home, 'settings.yaml.imported'), JSON.stringify({
+        'agency-agents': { enabled: ['reviewer'], customExperts: [], note: 'ignore' },
+      }), 'utf8')
+      const ctx = {
+        get: (name: string) => name === 'profileContext' ? { home } : undefined,
+        settings: {
+          describe: () => [{ ns: 'agency-agents', revision: 1 }],
+          update: async (_namespace: string, patch: unknown) => { written.push(patch) },
+        },
+      } as unknown as Context
+      await recoverImportedAgencySettings(ctx, 'agency-agents', () => ({ enabled: [] }), () => false, JSON.parse)
+      expect(written).toEqual([{ enabled: ['reviewer'], customExperts: [], customTeams: [], enabledTeams: [] }])
+      written.length = 0
+      await writeFile(join(home, 'settings.yaml'), 'agency-agents: {}\n', 'utf8')
+      await recoverImportedAgencySettings(ctx, 'agency-agents', () => ({ enabled: [] }), () => false, JSON.parse)
+      expect(written).toEqual([])
+      expect(agencySettingsFromLegacyDocument({ 'agency-agents': { enabled: [1, 'reviewer'] } })?.enabled).toEqual(['reviewer'])
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('启动事务尚未结束时，补写会先离开 HMR 事务', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'aag-legacy-hmr-'))
+    const written: unknown[] = []
+    let inside = true
+    try {
+      await writeFile(join(home, 'settings.yaml.imported'), JSON.stringify({
+        'agency-agents': { enabled: ['reviewer'] },
+      }), 'utf8')
+      const ctx = {
+        get: (name: string) => {
+          if (name === 'profileContext') return { home }
+          if (name === 'hmr') return {
+            executing: {
+              getStore: () => inside,
+              exit: (callback: () => Promise<void>) => {
+                const previous = inside
+                inside = false
+                try {
+                  return callback()
+                } finally {
+                  inside = previous
+                }
+              },
+            },
+          }
+          return undefined
+        },
+        settings: {
+          describe: () => [{ ns: 'agency-agents', revision: 1 }],
+          update: async (_namespace: string, patch: unknown) => {
+            if (inside) throw new Error('HMR transactions cannot be nested')
+            written.push(patch)
+          },
+        },
+      } as unknown as Context
+      await recoverImportedAgencySettings(ctx, 'agency-agents', () => ({ enabled: [] }), () => false, JSON.parse)
+      expect(written).toEqual([{ enabled: ['reviewer'], customExperts: [], customTeams: [], enabledTeams: [] }])
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('sanitize', () => {
+  it('转义双花括号，避免模板插值', () => {
+    expect(sanitize('{{x}}')).toBe('{\u200B{x}}')
+  })
+
+  it('三连花括号不残留 {{', () => {
+    expect(sanitize('{{{x}}}')).toBe('{\u200B{\u200B{x}}}')
+  })
+
+  it('无花括号的文本原样返回', () => {
+    expect(sanitize('no braces')).toBe('no braces')
+  })
+})
+
+describe('stripBom', () => {
+  it('去除 UTF-8 BOM', () => {
+    expect(stripBom('\uFEFF---')).toBe('---')
+  })
+
+  it('无 BOM 原样返回', () => {
+    expect(stripBom('---')).toBe('---')
+  })
+})
+
+describe('unquote', () => {
+  it('剥离双引号', () => {
+    expect(unquote('"📘"')).toBe('📘')
+  })
+
+  it('剥离单引号', () => {
+    expect(unquote("'x'")).toBe('x')
+  })
+
+  it('无引号原样返回', () => {
+    expect(unquote('abc')).toBe('abc')
+  })
+})
+
+describe('truncate', () => {
+  it('超长截断并追加省略号', () => {
+    expect(truncate('abcdef', 3)).toBe('abc…')
+  })
+
+  it('不超长原样返回', () => {
+    expect(truncate('abc', 3)).toBe('abc')
+  })
+
+  it('按码点截断，不拆开 emoji 代理对', () => {
+    expect(truncate('😀abc', 1)).toBe('😀…')
+  })
+})
+
+describe('parseFrontmatter', () => {
+  it('解析带引号的 emoji', () => {
+    const parsed = parseFrontmatter('---\nname: X\ndescription: D\ndescriptionEn: E\nemoji: "📘"\n---\nbody')
+    expect(parsed?.name).toBe('X')
+    expect(parsed?.description).toBe('D')
+    expect(parsed?.descriptionEn).toBe('E')
+    expect(parsed?.emoji).toBe('📘')
+    expect(parsed?.body).toBe('body')
+  })
+
+  it('无 frontmatter 返回 undefined', () => {
+    expect(parseFrontmatter('just body')).toBeUndefined()
+  })
+})
+
+describe('loadCatalog', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'aag-'))
+  })
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('递归加载 division 子目录中的智能体', async () => {
+    await mkdir(join(dir, 'game-development', 'unity'), { recursive: true })
+    await writeFile(join(dir, 'game-development', 'economy-designer.md'), '---\nname: E\ndescription: 中文简介\ndescriptionEn: English intro\n---\nbody', 'utf8')
+    await writeFile(join(dir, 'game-development', 'unity', 'unity-architect.md'), '---\nname: U\ndescription: d\n---\nbody', 'utf8')
+    const map = await loadCatalog(dir, ['game-development'])
+    expect(map.has('economy-designer')).toBe(true)
+    expect(map.get('economy-designer')?.descriptionEn).toBe('English intro')
+    expect(map.get('economy-designer')).not.toHaveProperty('persona')
+    expect(map.has('unity-architect')).toBe(true)
+    expect(map.get('unity-architect')?.division).toBe('game-development')
+    const source = createAgencyPersonaSource(dir, ["game-development"]);
+    await expect(source.getPrompt("unity-architect", "game-development", "zh"))
+      .resolves.toEqual({ prompt: "body" });
+  })
+
+  it('frontmatter 跨 1KB 分块且多字节 UTF-8 字符落在边界时仍能解析', async () => {
+    await mkdir(join(dir, 'engineering'), { recursive: true })
+    const prefix = '---\nname: Boundary Expert\ndescription: '
+    const padding = 'a'.repeat(1_023 - Buffer.byteLength(prefix, 'utf8'))
+    const description = `${padding}中`
+    await writeFile(
+      join(dir, 'engineering', 'boundary-expert.md'),
+      `${prefix}${description}\n---\nPersona body must not be read while loading metadata.`,
+      'utf8',
+    )
+
+    const map = await loadCatalog(dir, ['engineering'])
+
+    expect(map.get('boundary-expert')?.description).toBe(description)
+    expect(map.get('boundary-expert')).not.toHaveProperty('persona')
+  })
+
+  it('不将 integrations/mcp-memory 转换输出作为工程专家加载', async () => {
+    await mkdir(join(dir, 'engineering'), { recursive: true })
+    await mkdir(join(dir, 'integrations', 'mcp-memory'), { recursive: true })
+    await writeFile(join(dir, 'engineering', 'engineering-backend-architect.md'), '---\nname: Backend Architect\ndescription: d\n---\nbody', 'utf8')
+    await writeFile(join(dir, 'integrations', 'mcp-memory', 'backend-architect-with-memory.md'), '---\nname: Backend Architect\ndescription: d\n---\nbody', 'utf8')
+    const map = await loadCatalog(dir, ['engineering'])
+    expect(map.has('engineering-backend-architect')).toBe(true)
+    expect(map.has('backend-architect-with-memory')).toBe(false)
+  })
+
+  it('未配置的分区不会参与名册加载', async () => {
+    await mkdir(join(dir, 'marketing'), { recursive: true })
+    await mkdir(join(dir, 'integrations', 'mcp-memory'), { recursive: true })
+    await writeFile(join(dir, 'marketing', 'marketing-specialist.md'), '---\nname: Marketing Specialist\ndescription: d\n---\nbody', 'utf8')
+    await writeFile(join(dir, 'integrations', 'mcp-memory', 'backend-architect-with-memory.md'), '---\nname: Backend Architect\ndescription: d\n---\nbody', 'utf8')
+
+    const map = await loadCatalog(dir, ['marketing'])
+
+    expect(map.has('marketing-specialist')).toBe(true)
+    expect(map.has('backend-architect-with-memory')).toBe(false)
+  })
+
+  it('同 slug 冲突时按文件名排序确定覆盖顺序', async () => {
+    await mkdir(join(dir, 'engineering', 'z-sub'), { recursive: true })
+    await writeFile(join(dir, 'engineering', 'reviewer.md'), '---\nname: Root\ndescription: d\n---\nbody', 'utf8')
+    await writeFile(join(dir, 'engineering', 'z-sub', 'reviewer.md'), '---\nname: Sub\ndescription: d\n---\nSub persona', 'utf8')
+    // 'reviewer.md' 按文件名排在 'z-sub' 之前，子目录中的同名文件后加载并覆盖
+    const map = await loadCatalog(dir, ['engineering'])
+    expect(map.get('reviewer')?.name).toBe('Sub')
+    const source = createAgencyPersonaSource(dir, ["engineering"]);
+    await expect(source.getPrompt("reviewer", "engineering", "en"))
+      .resolves.toEqual({ prompt: "Sub persona" });
+  })
+
+  it('名称仅大小写或首尾空白不同时仍拒绝加载，并按界面语言报错', async () => {
+    await mkdir(join(dir, 'engineering'), { recursive: true })
+    await writeFile(join(dir, 'engineering', 'reviewer-a.md'), '---\nname: Reviewer\ndescription: d\n---\nbody', 'utf8')
+    await writeFile(join(dir, 'engineering', 'reviewer-b.md'), '---\nname:  reviewer  \ndescription: d\n---\nbody', 'utf8')
+
+    await expect(loadCatalog(dir, ['engineering'])).rejects.toThrow(formatHost('zh', 'error.catalogDuplicateName', { name: 'reviewer' }))
+    await expect(loadCatalog(dir, ['engineering'], 'en')).rejects.toThrow(formatHost('en', 'error.catalogDuplicateName', { name: 'reviewer' }))
+  })
+
+  it('root 不存在时抛出', async () => {
+    await expect(loadCatalog(join(dir, 'nope'), ['engineering'])).rejects.toThrow()
+  })
+
+  it('root 存在但无任何智能体时抛出', async () => {
+    await mkdir(join(dir, 'empty'), { recursive: true })
+    await expect(loadCatalog(join(dir, 'empty'), ['engineering'])).rejects.toThrow()
+  })
+
+  it('未配置 root 时加载随包发布的智能体目录', async () => {
+    const map = await loadCatalog(resolveCatalogRoot(''), ['academic'])
+    expect(map.size).toBeGreaterThan(0)
+  })
+
+  it('在解析 root 时读取之后设置的环境变量', () => {
+    const original = process.env.AGENCY_AGENTS_ROOT
+    process.env.AGENCY_AGENTS_ROOT = dir
+    try {
+      expect(resolveCatalogRoot('')).toBe(dir)
+    } finally {
+      if (original === undefined) delete process.env.AGENCY_AGENTS_ROOT
+      else process.env.AGENCY_AGENTS_ROOT = original
+    }
+  })
+})
+
+describe('resolveExpert', () => {
+  const experts = [
+    { slug: 'engineering-backend-architect', name: 'Backend Architect' },
+    { slug: 'backend-architect-with-memory', name: 'Backend Architect' },
+    { slug: 'Unity-Architect', name: 'Unity Architect' },
+  ]
+
+  it('精确名称对应多个智能体时抛出歧义，候选名称去重且不泄露 slug', () => {
+    expect(() => resolveExpert(experts, 'Backend Architect')).toThrow(formatHost('zh', 'error.expertAmbiguous', { query: 'Backend Architect', candidates: 'Backend Architect' }))
+  })
+
+  it('拒绝按 slug 召唤，只接受专家名称', () => {
+    expect(() => resolveExpert(experts, 'unity-architect')).toThrow(formatHost('zh', 'error.expertMissing', { query: 'unity-architect' }))
+  })
+
+  it('唯一部分匹配时返回智能体，无匹配时给出可操作错误', () => {
+    expect(resolveExpert(experts, 'unity').slug).toBe('Unity-Architect')
+    expect(() => resolveExpert(experts, 'missing')).toThrow(formatHost('zh', 'error.expertMissing', { query: 'missing' }))
+  })
+
+  it('查询名称按与名册校验一致的规则忽略大小写和首尾空白', () => {
+    expect(resolveExpert([{ slug: 'ui-designer', name: 'UI Designer' }], ' ui designer ').slug).toBe('ui-designer')
+  })
+})
+
+describe('summon_expert', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'aag-'))
+    await mkdir(join(dir, 'engineering'), { recursive: true })
+    await mkdir(join(dir, 'integrations', 'mcp-memory'), { recursive: true })
+    await writeFile(join(dir, 'engineering', 'reviewer.md'), '---\nname: Reviewer\ndescription: d\n---\nbody', 'utf8')
+  })
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('资源释放失败时向调用方抛出异常', async () => {
+    const tools: unknown[] = []
+    const ctx = {
+      tools: { register: (tool: unknown) => tools.push(tool) },
+      subagents: {
+        getProvider: () => ({ capabilities: { persona: true, toolFilter: true, depthLimit: true } }),
+        start: async () => ({
+          result: Promise.resolve({ output: [{ type: 'text', text: 'done' }], stopReason: 'completed' }),
+          dispose: async () => { throw new Error('dispose failed') },
+        }),
+      },
+      systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+      settings: alphaSettings(['reviewer']),
+      inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+        cb({ settings: { register: () => ({ get: () => ({ enabled: ['reviewer'] }), watch: () => () => {} }) }, effect: () => () => {} })
+      },
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'] })
+    const summon = tools.find((tool) => (tool as { name?: string }).name === 'summon_expert') as {
+      execute: (args: unknown, exec: unknown) => Promise<unknown>
+    }
+
+    await expect(summon.execute({ expert: 'reviewer', task: 'review' }, { agent: {} })).rejects.toThrow('dispose failed')
+  })
+
+  it('新版宿主通过 startActivation 按 caller 模式运行并转发取消信号', async () => {
+    const tools: unknown[] = []
+    const controller = new AbortController()
+    let activationSpec: Record<string, any> | undefined
+    let disposed = false
+    const ctx = {
+      tools: { register: (tool: unknown) => tools.push(tool) },
+      subagents: {
+        getProvider: () => ({ capabilities: { persona: true, toolFilter: true, depthLimit: true } }),
+        startActivation: async (spec: Record<string, any>) => {
+          activationSpec = spec
+          return {
+            childId: 'child-1',
+            result: Promise.resolve({ output: [{ type: 'text', text: 'done' }], stopReason: 'completed' }),
+            dispose: async () => { disposed = true },
+          }
+        },
+      },
+      systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+      settings: alphaSettings(['reviewer']),
+      inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+        cb({ settings: { register: () => ({ get: () => ({ enabled: ['reviewer'] }), watch: () => () => {} }) }, effect: () => () => {} })
+      },
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'] })
+    const summon = tools.find((tool) => (tool as { name?: string }).name === 'summon_expert') as {
+      execute: (args: unknown, exec: unknown) => Promise<unknown>
+    }
+
+    await expect(summon.execute(
+      { expert: 'reviewer', task: 'review' },
+      { agent: {}, signal: controller.signal },
+    )).resolves.toEqual({ expert: 'Reviewer', answer: 'done' })
+    expect(activationSpec).toMatchObject({
+      provider: 'spawn',
+      label: 'Reviewer',
+      signal: controller.signal,
+      delivery: 'caller',
+      request: { prompt: [{ type: 'text', text: 'review' }] },
+    })
+    // 宿主 >= 0.2.2-rc.2 只读扁平字段（parent / prompt / maxDepth 在顶层）。
+    // 两代形状必须同时下发，否则新宿主上 spec.parent 为 undefined，
+    // startActivation 会抛 "Cannot read properties of undefined (reading 'id')"。
+    expect(activationSpec?.prompt).toEqual([{ type: 'text', text: 'review' }])
+    expect(activationSpec?.parent).toBeDefined()
+    expect(disposed).toBe(true)
+  })
+
+  it('专家子代理通过 startActivation 首次启动与后续冷恢复均注入人格并限制召唤工具', async () => {
+    const tools: unknown[] = []
+    const listeners: Array<(event: any) => any> = []
+    let activationSpec: Record<string, any> | undefined
+    const startupSections: any[] = []
+    const startupRestrictions: any[] = []
+    const resumeSections: any[] = []
+    const resumeRestrictions: any[] = []
+
+    const ctx = {
+      tools: { register: (tool: unknown) => tools.push(tool) },
+      subagents: {
+        getProvider: () => ({ capabilities: { depthLimit: true } }),
+        startActivation: async (spec: Record<string, any>) => {
+          activationSpec = spec
+          // 模拟宿主创建子代理派发 agent/created (source: startup)
+          const startupCtx = {
+            systemPrompt: {
+              getSectionOrder: () => 100,
+              section: (sec: any) => { startupSections.push(sec) },
+            },
+            tools: {
+              restrict: (filter: any) => { startupRestrictions.push(filter) },
+            },
+          }
+          for (const listener of listeners) {
+            listener({ agent: { id: spec.childId, ctx: startupCtx }, source: 'startup' })
+          }
+          return {
+            childId: spec.childId,
+            result: Promise.resolve({ output: [{ type: 'text', text: 'expert answer' }], stopReason: 'completed' }),
+            dispose: async () => {},
+          }
+        },
+      },
+      systemPrompt: { section: () => undefined },
+      on: (event: string, cb: any) => {
+        if (event === 'agent/created') listeners.push(cb)
+        return () => {
+          const idx = listeners.indexOf(cb)
+          if (idx >= 0) listeners.splice(idx, 1)
+        }
+      },
+      get: (name: string) => name === 'profileContext' ? { home: dir } : undefined,
+      settings: alphaSettings(['reviewer']),
+      inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+        cb({ settings: { register: () => ({ get: () => ({ enabled: ['reviewer'] }), watch: () => () => {} }) }, effect: () => () => {} })
+      },
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'] })
+    const summon = tools.find((tool) => (tool as { name?: string }).name === 'summon_expert') as {
+      execute: (args: unknown, exec: unknown) => Promise<unknown>
+    }
+
+    const answer = await summon.execute({ expert: 'reviewer', task: 'review code' }, { agent: {} })
+    expect(answer).toEqual({ expert: 'Reviewer', answer: 'expert answer' })
+
+    // 首次启动断言
+    expect(startupSections).toHaveLength(1)
+    expect(startupSections[0]).toMatchObject({ name: 'deployment:persona-prefix', text: 'body' })
+    expect(startupRestrictions).toHaveLength(1)
+    expect(startupRestrictions[0]).toEqual({
+      deny: ['summon_expert', 'summon_experts', 'list_experts', 'list_expert_teams', 'get_expert_team', 'summon_expert_team'],
+    })
+
+    // 模拟冷恢复 (source: resume)，重新派发同一个 childId
+    const resumeCtx = {
+      systemPrompt: {
+        getSectionOrder: () => 100,
+        section: (sec: any) => { resumeSections.push(sec) },
+      },
+      tools: {
+        restrict: (filter: any) => { resumeRestrictions.push(filter) },
+      },
+    }
+    for (const listener of [...listeners]) {
+      listener({ agent: { id: activationSpec!.childId, ctx: resumeCtx }, source: 'resume' })
+    }
+
+    // 冷恢复断言：应该同样重新注入人格和工具限制
+    expect(resumeSections).toHaveLength(1)
+    expect(resumeSections[0]).toMatchObject({ name: 'deployment:persona-prefix', text: 'body' })
+    expect(resumeRestrictions).toHaveLength(1)
+    expect(resumeRestrictions[0]).toEqual({
+      deny: ['summon_expert', 'summon_experts', 'list_experts', 'list_expert_teams', 'get_expert_team', 'summon_expert_team'],
+    })
+
+    // 模拟跨进程重启：落盘后清空内存注册表，模拟完全不同的进程生命周期
+    flushSubagentRegistrySync(ctx)
+    clearSubagentRegistryForTest()
+    expect(getSubagentConfig(activationSpec!.childId)).toBeUndefined()
+    expect(isManagedSubagentId(activationSpec!.childId)).toBe(false)
+
+    // 新进程启动：初始化注册表，从本地持久化中恢复
+    initSubagentRegistry(ctx)
+    expect(getSubagentConfig(activationSpec!.childId)).toBeDefined()
+    expect(isManagedSubagentId(activationSpec!.childId)).toBe(true)
+
+    // 重启后重新派发冷恢复 (source: resume)
+    const restartResumeSections: any[] = []
+    const restartResumeRestrictions: any[] = []
+    const restartCtx = {
+      systemPrompt: {
+        getSectionOrder: () => 100,
+        section: (sec: any) => { restartResumeSections.push(sec) },
+      },
+      tools: {
+        restrict: (filter: any) => { restartResumeRestrictions.push(filter) },
+      },
+    }
+    for (const listener of [...listeners]) {
+      listener({ agent: { id: activationSpec!.childId, ctx: restartCtx }, source: 'resume' })
+    }
+    expect(restartResumeSections).toHaveLength(1)
+    expect(restartResumeSections[0]).toMatchObject({ name: 'deployment:persona-prefix', text: 'body' })
+    expect(restartResumeRestrictions).toHaveLength(1)
+    expect(restartResumeRestrictions[0]).toEqual({
+      deny: ['summon_expert', 'summon_experts', 'list_experts', 'list_expert_teams', 'get_expert_team', 'summon_expert_team'],
+    })
+  })
+
+  it('新版宿主在发布后收到父取消时立即 dispose 子代理', async () => {
+    const tools: unknown[] = []
+    const controller = new AbortController()
+    const stopReason = new Error('parent stopped')
+    let markPublished!: () => void
+    let markWaiting!: () => void
+    let finishResult!: (result: { output: unknown[]; stopReason: string }) => void
+    let disposeCalls = 0
+    const published = new Promise<void>(resolve => { markPublished = resolve })
+    const waiting = new Promise<void>(resolve => { markWaiting = resolve })
+    const ctx = {
+      tools: { register: (tool: unknown) => tools.push(tool) },
+      subagents: {
+        getProvider: () => ({ capabilities: { persona: true, toolFilter: true, depthLimit: true } }),
+        startActivation: async () => {
+          markPublished()
+          return {
+            childId: 'child-1',
+            get result() {
+              markWaiting()
+              return new Promise<{ output: unknown[]; stopReason: string }>(resolve => { finishResult = resolve })
+            },
+            dispose: async () => { disposeCalls += 1 },
+          }
+        },
+      },
+      systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+      settings: alphaSettings(['reviewer']),
+      inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+        cb({ settings: { register: () => ({ get: () => ({ enabled: ['reviewer'] }), watch: () => () => {} }) }, effect: () => () => {} })
+      },
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'] })
+    const summon = tools.find((tool) => (tool as { name?: string }).name === 'summon_expert') as {
+      execute: (args: unknown, exec: unknown) => Promise<unknown>
+    }
+    const execution = summon.execute(
+      { expert: 'reviewer', task: 'review' },
+      { agent: {}, signal: controller.signal },
+    ).then(value => ({ value }), error => ({ error }))
+
+    await published
+    await waiting
+    controller.abort(stopReason)
+    const disposeCallsAtAbort = disposeCalls
+    const outcome = await Promise.race([
+      execution,
+      new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 50)),
+    ])
+    finishResult({ output: [], stopReason: 'aborted' })
+
+    expect(disposeCallsAtAbort).toBe(1)
+    expect(disposeCalls).toBe(1)
+    expect(outcome).toEqual({ error: stopReason })
+  })
+
+  it('空 maxDepth 不透传给 provider，且子代理不能浏览或递归召唤花名册', async () => {
+    const tools: unknown[] = []
+    let startOptions: Record<string, unknown> | undefined
+    const ctx = {
+      tools: { register: (tool: unknown) => tools.push(tool) },
+      subagents: {
+        getProvider: () => ({ capabilities: { persona: true, toolFilter: true, depthLimit: true } }),
+        start: async (_provider: string, options: Record<string, unknown>) => {
+          startOptions = options
+          return {
+            result: Promise.resolve({ output: [{ type: 'text', text: 'done' }], stopReason: 'completed' }),
+            dispose: async () => undefined,
+          }
+        },
+      },
+      systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+      settings: alphaSettings(['reviewer']),
+      inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+        cb({ settings: { register: () => ({ get: () => ({ enabled: ['reviewer'] }), watch: () => () => {} }) }, effect: () => () => {} })
+      },
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'], maxDepth: null as unknown as number })
+    const summon = tools.find((tool) => (tool as { name?: string }).name === 'summon_expert') as {
+      execute: (args: unknown, exec: unknown) => Promise<unknown>
+    }
+
+    await expect(summon.execute({ expert: 'reviewer', task: 'review' }, { agent: {} })).resolves.toEqual({ expert: 'Reviewer', answer: 'done' })
+    expect(startOptions).toMatchObject({ label: 'Reviewer', toolFilter: { deny: ['summon_expert', 'summon_experts', 'list_experts', 'list_expert_teams', 'get_expert_team', 'summon_expert_team'] } })
+    expect(startOptions).not.toHaveProperty('maxDepth')
+  })
+
+  it('中文界面展示正文经安全处理后与实际召唤 persona 一致', async () => {
+    const tools: unknown[] = []
+    let startOptions: Record<string, unknown> | undefined
+    let promptSource: { getPrompt(slug: string, division: string, locale: 'zh' | 'en'): Promise<{ prompt: string }> } | undefined
+    const ctx = {
+      tools: { register: (tool: unknown) => tools.push(tool) },
+      subagents: {
+        getProvider: () => ({ capabilities: { persona: true, toolFilter: true, depthLimit: true } }),
+        start: async (_provider: string, options: Record<string, unknown>) => {
+          startOptions = options
+          return {
+            result: Promise.resolve({ output: [{ type: 'text', text: 'done' }], stopReason: 'completed' }),
+            dispose: async () => undefined,
+          }
+        },
+      },
+      systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+      settings: alphaSettings(['chief-executive-officer'], 'zh'),
+      inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+        cb({ settings: { register: () => ({ get: () => ({ enabled: ['chief-executive-officer'] }), watch: () => () => {} }) }, effect: () => () => {} })
+      },
+      reflect: {
+        provide: (name: string, value: unknown) => {
+          if (name === 'agencyAgentsPersona') promptSource = value as typeof promptSource
+          return undefined
+        },
+      },
+    } as unknown as Context
+
+    applyOnHost(ctx, { root: '', provider: 'spawn', divisions: ['company'] })
+    const summon = tools.find((tool) => (tool as { name?: string }).name === 'summon_expert') as {
+      execute: (args: unknown, exec: unknown) => Promise<unknown>
+    }
+    await expect(summon.execute({ expert: '首席执行官', task: '制定战略' }, { agent: {} })).resolves.toEqual({ expert: '首席执行官（CEO）', answer: 'done' })
+
+    const displayed = await promptSource!.getPrompt('chief-executive-officer', 'company', 'zh')
+    expect(displayed.prompt).toContain('首席执行官')
+    expect(startOptions?.persona).toBe(sanitize(displayed.prompt))
+  })
+
+  it('只向父会话注入花名册协议', () => {
+    const tools: unknown[] = []
+    const sections: Array<{ name: string; text: string | ((context: unknown) => string) }> = []
+    const ctx = {
+      tools: { register: (tool: unknown) => tools.push(tool) },
+      subagents: { getProvider: () => undefined },
+      systemPrompt: { section: (section: { name: string; text: string | ((context: unknown) => string) }) => sections.push(section) },
+      settings: alphaSettings(['reviewer']),
+      inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+        cb({ settings: { register: () => ({ get: () => ({ enabled: ['reviewer'] }), watch: () => () => {} }) }, effect: () => () => {} })
+      },
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'] })
+    const text = sections.find((section) => section.name === 'agency:experts')?.text
+    expect(typeof text).toBe('function')
+    if (typeof text !== 'function') throw new Error('agency:experts must be dynamic')
+
+    expect(text({ agent: { session: { header: {} } } })).toContain('parent session')
+    expect(text({ agent: { session: { header: {} } } })).toContain('summon_experts')
+    expect(text({ agent: { session: { header: { parentSession: 'parent' } } } })).toBe('')
+  })
+
+  it('父会话被要求只传简报和路径，不要把带引号的源码写进召唤参数', () => {
+    const sections: Array<{ name: string; text: string | ((context: unknown) => string) }> = []
+    const tools: Array<{ name?: string; parameters?: unknown }> = []
+    const ctx = {
+      tools: { register: (tool: { name?: string; parameters?: unknown }) => tools.push(tool) },
+      subagents: { getProvider: () => undefined },
+      systemPrompt: { section: (section: { name: string; text: string | ((context: unknown) => string) }) => sections.push(section) },
+      settings: alphaSettings(['reviewer']),
+      inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+        cb({ settings: { register: () => ({ get: () => ({ enabled: ['reviewer'] }), watch: () => () => {} }) }, effect: () => () => {} })
+      },
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'] })
+    const text = sections.find((section) => section.name === 'agency:experts')?.text
+    if (typeof text !== 'function') throw new Error('agency:experts must be dynamic')
+    const prompt = text({ agent: { session: { header: {} } } })
+    expect(prompt).toContain('Do not paste source, CSS, HTML, or quoted code')
+    expect(prompt).toContain('call summon_expert or summon_experts immediately')
+    expect(prompt).toContain('Do not call list_experts, read the project, or do the analysis yourself')
+    expect(prompt).toContain(String(SUMMON_TASK_MAX_CHARS))
+    expect(SUMMON_TASK_MAX_CHARS).toBe(2000)
+
+    const descriptions = ['summon_expert', 'summon_experts'].map((name) => {
+      const tool = tools.find((item) => item.name === name)
+      return JSON.stringify(tool?.parameters ?? {})
+    })
+    for (const description of descriptions) {
+      expect(description).toContain('Do not paste source, CSS, HTML, or quoted code')
+      expect(description).toContain(String(SUMMON_TASK_MAX_CHARS))
+      expect(description).not.toContain('Include all necessary context')
+      expect(description).not.toContain('complete, self-contained')
+    }
+  })
+
+  it('在注册阶段拒绝零 maxDepth，避免第一次委派才失败', () => {
+    const ctx = {
+      tools: { register: () => undefined },
+      subagents: { getProvider: () => undefined },
+      systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+      settings: alphaSettings(['reviewer']),
+      inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+        cb({ settings: { register: () => ({ get: () => ({ enabled: ['reviewer'] }), watch: () => () => {} }) }, effect: () => () => {} })
+      },
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+
+    expect(() => applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'], maxDepth: 0 })).toThrow(formatHost('zh', 'error.maxDepth'))
+  })
+
+  it('分区筛选会去除空白并要求精确 division', async () => {
+    const tools: unknown[] = []
+    const ctx = {
+      tools: { register: (tool: unknown) => tools.push(tool) },
+      subagents: { getProvider: () => undefined },
+      systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+      settings: alphaSettings(['reviewer']),
+      inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+        cb({ settings: { register: () => ({ get: () => ({ enabled: ['reviewer'] }), watch: () => () => {} }) }, effect: () => () => {} })
+      },
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'] })
+    const list = tools.find((tool) => (tool as { name?: string }).name === 'list_experts') as {
+      execute: (args: unknown) => Promise<{ divisions: Array<{ division: string }>; total: number }>
+    }
+
+    await expect(list.execute({ division: ' engineering ' })).resolves.toMatchObject({ divisions: [{ division: 'engineering' }], total: 1 })
+    await expect(list.execute({ division: 'en' })).resolves.toEqual({ divisions: [], total: 0 })
+  })
+
+  it.each([
+    ['expert personas', { persona: false, toolFilter: true, depthLimit: true }, undefined, formatHost('zh', 'error.providerNoPersona', { provider: 'spawn' })],
+    ['toolFilter', { persona: true, toolFilter: false, depthLimit: true }, undefined, formatHost('zh', 'error.providerNoToolFilter', { provider: 'spawn' })],
+    ['maxDepth', { persona: true, toolFilter: true, depthLimit: false }, 1, formatHost('zh', 'error.providerNoMaxDepth', { provider: 'spawn' })],
+  ])('provider 缺少 %s 能力时给出明确错误', async (_capability, capabilities, maxDepth, message) => {
+    const tools: unknown[] = []
+    const ctx = {
+      tools: { register: (tool: unknown) => tools.push(tool) },
+      subagents: {
+        getProvider: () => ({ capabilities }),
+        start: async () => { throw new Error('must not start') },
+      },
+      systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+      settings: alphaSettings(['reviewer'], 'zh'),
+      inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+        cb({ settings: { register: () => ({ get: () => ({ enabled: ['reviewer'] }), watch: () => () => {} }) }, effect: () => () => {} })
+      },
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'], ...(maxDepth === undefined ? {} : { maxDepth }) })
+    const summon = tools.find((tool) => (tool as { name?: string }).name === 'summon_expert') as {
+      execute: (args: unknown, exec: unknown) => Promise<unknown>
+    }
+
+    await expect(summon.execute({ expert: 'reviewer', task: 'review' }, { agent: {} })).rejects.toThrow(message)
+  })
+
+  it('单条召唤拒绝空任务与超长任务，与批量上限一致', async () => {
+    const tools: unknown[] = []
+    const ctx = {
+      tools: { register: (tool: unknown) => tools.push(tool) },
+      subagents: {
+        getProvider: () => ({ capabilities: { persona: true, toolFilter: true, depthLimit: true } }),
+        start: async () => { throw new Error('provider start reached') },
+      },
+      systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+      settings: alphaSettings(['reviewer'], 'zh'),
+      inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+        cb({ settings: { register: () => ({ get: () => ({ enabled: ['reviewer'] }), watch: () => () => {} }) }, effect: () => () => {} })
+      },
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'] })
+    const summon = tools.find((tool) => (tool as { name?: string }).name === 'summon_expert') as {
+      execute: (args: unknown, exec: unknown) => Promise<unknown>
+    }
+
+    await expect(summon.execute({ expert: 'reviewer', task: '   ' }, { agent: {} })).rejects.toThrow(formatHost('zh', 'error.taskRequired'))
+    const longTask = '汉'.repeat(SUMMON_TASK_MAX_CHARS + 1)
+    await expect(summon.execute({ expert: 'reviewer', task: longTask }, { agent: {} })).rejects.toThrow(formatHost('zh', 'error.taskLimit', { length: SUMMON_TASK_MAX_CHARS + 1, max: SUMMON_TASK_MAX_CHARS }))
+    await expect(summon.execute({ expert: 'reviewer', task: '汉'.repeat(SUMMON_TASK_MAX_CHARS) }, { agent: {} })).rejects.toThrow('provider start reached')
+  })
+
+  it('非 completed 的专家运行会返回部分输出以便排障', async () => {
+    const tools: unknown[] = []
+    const ctx = {
+      tools: { register: (tool: unknown) => tools.push(tool) },
+      subagents: {
+        getProvider: () => ({ capabilities: { persona: true, toolFilter: true, depthLimit: true } }),
+        start: async () => ({
+          result: Promise.resolve({ output: [{ type: 'text', text: 'partial result' }], stopReason: 'cancelled' }),
+          dispose: async () => undefined,
+        }),
+      },
+      systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+      settings: alphaSettings(['reviewer'], 'zh'),
+      inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+        cb({ settings: { register: () => ({ get: () => ({ enabled: ['reviewer'] }), watch: () => () => {} }) }, effect: () => () => {} })
+      },
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'] })
+    const summon = tools.find((tool) => (tool as { name?: string }).name === 'summon_expert') as {
+      execute: (args: unknown, exec: unknown) => Promise<unknown>
+    }
+
+    await expect(summon.execute({ expert: 'reviewer', task: 'review' }, { agent: {} })).rejects.toThrow(formatHost('zh', 'error.expertRun', { reason: 'cancelled', detail: formatHost('zh', 'error.partialOutput', { text: 'partial result' }) }))
+  })
+})
+
+describe('AgencyAgentsRemote（Host↔Client 读写链路）', () => {
+  it('提示词读取剥离 frontmatter，并拒绝路径穿越参数', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'aag-prompt-'))
+    try {
+      await mkdir(join(root, 'engineering'), { recursive: true })
+      await writeFile(join(root, 'engineering', 'reviewer.md'), '---\nname: Reviewer\ndescription: desc\n---\nPersona body', 'utf8')
+      await expect(readExpertPrompt(root, 'reviewer', 'engineering')).resolves.toEqual({ prompt: 'Persona body' })
+      await expect(readExpertPrompt(root, '../package', 'engineering')).rejects.toThrow('无效的专家提示词请求。')
+      await expect(readExpertPrompt(root, 'reviewer', '../engineering')).rejects.toThrow('无效的专家提示词请求。')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('提示词正文按界面语言读取，中文缺失时回退英文', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'aag-localized-prompt-'))
+    const englishRoot = join(root, 'en')
+    const chineseRoot = join(root, 'zh')
+    try {
+      await mkdir(join(englishRoot, 'engineering'), { recursive: true })
+      await mkdir(join(chineseRoot, 'engineering'), { recursive: true })
+      await writeFile(join(englishRoot, 'engineering', 'reviewer.md'), '---\nname: Reviewer\ndescription: desc\n---\nEnglish persona', 'utf8')
+      await writeFile(join(chineseRoot, 'engineering', 'reviewer.md'), '---\nname: 审查员\ndescription: 简介\n---\n中文角色设定', 'utf8')
+      await writeFile(join(englishRoot, 'engineering', 'fallback.md'), '---\nname: Fallback\ndescription: desc\n---\nFallback persona', 'utf8')
+
+      await expect(readLocalizedExpertPrompt(englishRoot, chineseRoot, 'reviewer', 'engineering', 'zh')).resolves.toEqual({ prompt: '中文角色设定' })
+      await expect(readLocalizedExpertPrompt(englishRoot, chineseRoot, 'reviewer', 'engineering', 'en')).resolves.toEqual({ prompt: 'English persona' })
+      await expect(readLocalizedExpertPrompt(englishRoot, chineseRoot, 'fallback', 'engineering', 'zh')).resolves.toEqual({ prompt: 'Fallback persona' })
+      await expect(readExpertPrompt(englishRoot, 'missing', 'engineering', undefined, 'en')).rejects.toMatchObject({ code: 'PERSONA_NOT_FOUND', message: 'Expert prompt not found.' })
+      await mkdir(join(chineseRoot, 'engineering', 'fallback.md'))
+      await expect(readLocalizedExpertPrompt(englishRoot, chineseRoot, 'fallback', 'engineering', 'zh')).rejects.toMatchObject({ code: 'PERSONA_READ_FAILED' })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('将 Settings revision 冲突映射到 i18n key，并区分刷新成败', () => {
+    const conflict = new Error('settings namespace "agency-agents" changed since it was read (expected revision 0, now 1)')
+    expect(writeErrorKey(conflict)).toBe('error.conflict')
+    expect(writeErrorKey(conflict, { refreshed: true })).toBe('error.conflict.refreshed')
+    expect(writeErrorKey(conflict, { refreshed: false })).toBe('error.conflict.refreshFailed')
+    expect(writeErrorMessage(conflict)).toBe(zh['error.conflict'])
+    expect(writeErrorMessage(conflict, { refreshed: true })).toBe(zh['error.conflict.refreshed'])
+    expect(writeErrorMessage(conflict, { refreshed: false })).toBe(zh['error.conflict.refreshFailed'])
+  })
+
+  it('冲突文案走传入的 t，非冲突错误忽略 refreshed 并原样返回', () => {
+    const conflict = new Error('settings namespace "agency-agents" changed since it was read (expected revision 0, now 1)')
+    const tEn = (key: AgencyKey): string => en[key]
+    expect(writeErrorMessage(conflict, { refreshed: true, t: tEn })).toBe(en['error.conflict.refreshed'])
+    expect(writeErrorMessage(conflict, { refreshed: false, t: tEn })).toBe(en['error.conflict.refreshFailed'])
+    expect(writeErrorKey(new Error('network down'))).toBeNull()
+    expect(writeErrorMessage(new Error('network down'), { refreshed: true, t: tEn })).toBe('network down')
+    expect(writeErrorMessage('plain')).toBe('plain')
+  })
+
+  it('getEnabled 读取原始配置，setEnabled 委托 library 并传递修订号与错误', async () => {
+    let stored: { enabled: string[] } = { enabled: [] }
+    let revision = 0
+    const registered: unknown[] = []
+    // 此处只验证 Remote 委托；真实 library 的启用校验见 custom-experts.test.ts。
+    const ctx = {
+      get: () => ({ setEnabled: async (enabled: string[], expectedRevision: number) => {
+        await ctx.settings.mutate(settingsNamespaceCompat('agency-agents'), [{ op: 'set', path: ['enabled'], value: enabled }], expectedRevision)
+        return { enabled, revision }
+      } }),
+      reflect: { provide: () => undefined },
+      typert: { register: (contribution: unknown) => { registered.push(contribution) } },
+      settings: {
+        get: () => stored,
+        describe: () => [{ ns: 'agency-agents', revision }],
+        mutate: async (_ns: unknown, ops: Array<{ op: string; path: readonly string[]; value: unknown }>, expectedRevision?: number) => {
+          if (expectedRevision !== revision) throw new Error('stale revision')
+          const op = ops[0]
+          if (op !== undefined && op.op === 'set' && op.path[0] === 'enabled') {
+            stored = { enabled: op.value as string[] }
+            revision += 1
+          }
+        },
+      },
+    } as unknown as Context
+
+    const remote = new AgencyAgentsRemote(ctx)
+    expect(registered).toHaveLength(1)
+    expect(remote.getEnabled()).toEqual({ enabled: [], revision: 0 })
+
+    const liveCtx = {
+      reflect: { provide: () => undefined },
+      get: () => undefined,
+      typert: { register: () => undefined },
+      settings: {
+        describe: () => [{ ns: 'agency-agents', revision: 6, value: { enabled: ['reviewer', 1] } }],
+      },
+    } as unknown as Context
+    expect(new AgencyAgentsRemote(liveCtx).getEnabled()).toEqual({ enabled: ['reviewer'], revision: 6 })
+
+    await expect(remote.setEnabled(['reviewer', 'coder'], 0)).resolves.toEqual({ enabled: ['reviewer', 'coder'], revision: 1 })
+    await expect(remote.setEnabled(['writer'], 0)).rejects.toThrow('stale revision')
+  })
+
+  it('显式自定义目录通过主插件 persona 服务同步给设置页', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'aag-custom-prompt-'))
+    try {
+      await mkdir(join(root, 'engineering'), { recursive: true })
+      await writeFile(join(root, 'engineering', 'reviewer.md'), '---\nname: Reviewer\ndescription: desc\n---\nCustom persona', 'utf8')
+      let promptSource: { getPrompt(slug: string, division: string, locale: 'zh' | 'en'): Promise<{ prompt: string }> } | undefined
+      const pluginCtx = {
+        tools: { register: () => undefined },
+        subagents: { getProvider: () => undefined },
+        systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+        settings: alphaSettings([], 'zh'),
+        inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+          cb({ settings: { register: () => ({ get: () => ({ enabled: [] }), watch: () => () => {} }) }, effect: () => () => {} })
+        },
+        reflect: {
+          provide: (name: string, value: unknown) => {
+            if (name === 'agencyAgentsPersona') promptSource = value as typeof promptSource
+            return undefined
+          },
+        },
+      } as unknown as Context
+      applyOnHost(pluginCtx, { root, provider: 'spawn', divisions: ['engineering'] })
+
+      const remoteCtx = {
+        reflect: { provide: () => undefined },
+        get: (name: string) => name === 'agencyAgentsPersona' ? promptSource : undefined,
+        typert: { register: () => undefined },
+        settings: {
+          get: (namespace: string) => namespace === 'locale' ? { preference: 'zh' } : { enabled: [] },
+          describe: () => [{ ns: 'agency-agents', revision: 0 }],
+        },
+      } as unknown as Context
+      const remote = new AgencyAgentsRemote(remoteCtx)
+
+      await expect(remote.getPrompt('reviewer', 'engineering')).resolves.toEqual({ prompt: 'Custom persona' })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('persona 服务尚未挂载时按中英文失败关闭，不回退到其他目录', async () => {
+    for (const locale of ['zh', 'en'] as const) {
+      const ctx = {
+        reflect: { provide: () => undefined },
+        get: () => undefined,
+        typert: { register: () => undefined },
+        settings: {
+          get: (namespace: string) => namespace === 'locale' ? { preference: locale } : { enabled: [] },
+          describe: () => [{ ns: 'agency-agents', revision: 0 }],
+        },
+      } as unknown as Context
+      const remote = new AgencyAgentsRemote(ctx)
+
+      await expect(remote.getPrompt('chief-executive-officer', 'company')).rejects.toThrow(
+        formatHost(locale, 'error.personaSourceUnavailable'),
+      )
+    }
+  })
+
+  it('TYPERT_REMOTE 贡献描述符与 host 方法对齐（client $mount 契约）', () => {
+    const endpoints = TYPERT_REMOTE.descriptors.map((d) => `${d.namespace}/${d.method}`)
+    expect(endpoints).toContain('agencyAgents/getEnabled')
+    expect(endpoints).toContain('agencyAgents/setEnabled')
+    expect(endpoints).toContain('agencyAgents/getPrompt')
+    for (const d of TYPERT_REMOTE.descriptors) {
+      expect(d.service).toBe('agencyAgents')
+      expect(d.result.mode).toBe('strict')
+    }
+    const setEnabled = TYPERT_REMOTE.descriptors.find((d) => d.method === 'setEnabled')
+    const getPrompt = TYPERT_REMOTE.descriptors.find((d) => d.method === 'getPrompt')
+    expect(TYPERT_REMOTE.descriptors).toBe(AGENCY_AGENTS_DESCRIPTORS)
+    expect(setEnabled?.parameters.map((p) => p.wire)).toEqual(['enabled', 'expectedRevision'])
+    expect(getPrompt?.parameters.map((p) => p.wire)).toEqual(['slug', 'division'])
+  })
+
+  it('严格 codec 同时提供 create 与 schema，兼容 alpha.1 与 alpha.2 宿主', () => {
+    const codecs = AGENCY_AGENTS_DESCRIPTORS.flatMap((descriptor) => [
+      descriptor.result,
+      ...descriptor.parameters.map((parameter) => parameter.codec),
+    ])
+    expect(codecs.length).toBeGreaterThan(0)
+    for (const codec of codecs) {
+      expect(codec.mode).toBe('strict')
+      if (codec.mode !== 'strict') continue
+      expect(typeof codec.create).toBe('function')
+      expect(typeof codec.create().parse).toBe('function')
+      expect(typeof (codec as { schema?: { parse?: unknown } }).schema?.parse).toBe('function')
+    }
+  })
+})
+
+describe('宿主 i18n', () => {
+  it('zh/en 词条 key 对齐，且只有显式中文才切换语言', () => {
+    expect(Object.keys(zh).sort()).toEqual(Object.keys(en).sort())
+    expect(Object.keys(zhHost).sort()).toEqual(Object.keys(enHost).sort())
+    expect(Object.hasOwn(zh, 'group.count')).toBe(false)
+    expect(resolveHostLocale('zh')).toBe('zh')
+    expect(resolveHostLocale('zh-CN')).toBe('zh')
+    expect(resolveHostLocale('en')).toBe('en')
+    expect(resolveHostLocale('en-US')).toBe('en')
+    expect(resolveHostLocale('ja')).toBe('en')
+    // 未选择语言时按 DSH 的 en 兜底，不替用户假定中文。
+    expect(resolveHostLocale(undefined)).toBe('en')
+    expect(readHostLocale({})).toBe('en')
+    expect(readHostLocale({ settings: { get: () => ({ preference: 'zh' }) } })).toBe('zh')
+    expect(readHostLocale({ settings: { get: () => ({ preference: 'en' }) } })).toBe('en')
+    expect(readHostLocale({ settings: { get: () => ({ preference: undefined }) } })).toBe('en')
+    expect(readHostLocale({ settings: { describe: () => [{ ns: 'locale', value: { preference: 'en' } }] } })).toBe('en')
+    expect(zh['settings.nav']).toBe('专家')
+    expect(en['settings.nav']).toBe('Experts')
+    expect(readHostLocale({ settings: { get: () => { throw new Error('missing') } } })).toBe('en')
+    expect(readHostLocale({
+      get settings(): never {
+        throw new Error('cannot get property "settings" without inject')
+      },
+    })).toBe('en')
+  })
+
+  it('中英词条占位符一致，筛选空态跟随「全部」译文', () => {
+    const placeholders = (text: string): string[] => [...text.matchAll(/\{(\w+)\}/g)].map((match) => match[1] ?? '').sort()
+    for (const key of Object.keys(zh) as AgencyKey[]) {
+      expect(placeholders(en[key]), key).toEqual(placeholders(zh[key]))
+    }
+    for (const key of Object.keys(zhHost) as Array<keyof typeof zhHost>) {
+      expect(placeholders(enHost[key]), key).toEqual(placeholders(zhHost[key]))
+    }
+    expect(zh['settings.empty']).toContain('{all}')
+    expect(en['settings.empty']).toContain('{all}')
+    for (const key of [
+      'settings.intro',
+      'settings.filter.showing.one',
+      'settings.filter.showing.other',
+      'btn.enable',
+      'btn.disable',
+      'summary.enabled.one',
+      'summary.enabled.other',
+      'summary.group',
+    ]) {
+      expect(Object.hasOwn(zh, key), key).toBe(false)
+      expect(Object.hasOwn(en, key), key).toBe(false)
+    }
+  })
+
+  it('分区查询同时认 key、中文名和英文名', () => {
+    expect(matchDivision('engineering', 'engineering')).toBe(true)
+    expect(matchDivision(' 工程 ', 'engineering')).toBe(true)
+    expect(matchDivision('Game Development', 'game-development')).toBe(true)
+    expect(matchDivision('en', 'engineering')).toBe(false)
+  })
+
+  it('list_experts 渲染按语言切换分区名和外壳句子', () => {
+    const value = {
+      divisions: [{
+        division: 'engineering',
+        count: 1,
+        experts: [{ name: '代码审查工程师', emoji: '🔍', description: '中文简介' }],
+      }],
+      total: 1,
+    }
+    expect(renderExpertList('zh', {}, value)).toContain('1 位专家，覆盖 1 个分区：')
+    expect(renderExpertList('zh', {}, value)).toContain('## 工程（1）')
+    expect(renderExpertList('en', {}, value)).toContain('1 experts across 1 divisions:')
+    expect(renderExpertList('en', {}, value)).toContain('## Engineering (1)')
+    expect(renderExpertList('zh', {}, { divisions: [], total: 0 })).toBe(formatHost('zh', 'list.empty'))
+    expect(renderExpertList('en', { division: 'security' }, { divisions: [], total: 0 })).toBe(formatHost('en', 'list.emptyDivision', { division: 'security' }))
+  })
+
+  it('resolveExpert 缺省中文报错，显式 en 走英文', () => {
+    const experts = [
+      { slug: 'a', name: '后端架构师', nameEn: 'Backend Architect' },
+      { slug: 'b', name: '后端架构师', nameEn: 'Backend Architect' },
+    ]
+    expect(() => resolveExpert(experts, '')).toThrow(formatHost('zh', 'error.expertRequired'))
+    expect(() => resolveExpert(experts, '', 'en')).toThrow(formatHost('en', 'error.expertRequired'))
+    expect(() => resolveExpert(experts, '后端架构师')).toThrow(formatHost('zh', 'error.expertAmbiguous', { query: '后端架构师', candidates: '后端架构师' }))
+    expect(() => resolveExpert(experts, 'missing', 'en')).toThrow(formatHost('en', 'error.expertMissing', { query: 'missing' }))
+  })
+})
+
+describe('compareExpertName', () => {
+  const a = { name: '安全工程师', nameEn: 'ZZZ Security' }
+  const b = { name: '测试工程师', nameEn: 'AAA Test' }
+
+  it('中文界面按中文名排序，英文界面按英文名排序', () => {
+    expect(compareExpertName(a, b, 'zh')).toBeLessThan(0)
+    expect(compareExpertName(a, b, 'en')).toBeGreaterThan(0)
+  })
+})
+
+describe('filterExperts', () => {
+  const experts = [
+    {
+      slug: 'engineering-code-reviewer',
+      name: '代码审查工程师',
+      nameEn: 'Code Reviewer',
+      division: 'engineering',
+      divisionZh: '工程',
+      divisionEn: 'Engineering',
+      description: '审查代码并按严重程度列出问题',
+      descriptionEn: 'Review code and rank findings by severity',
+    },
+    {
+      slug: 'academic-historian',
+      name: '历史学家',
+      nameEn: 'Historian',
+      division: 'academic',
+      divisionZh: '学术',
+      divisionEn: 'Academic',
+      description: '梳理历史分期与史料',
+      descriptionEn: 'Trace historical periods and sources',
+    },
+  ]
+
+  it('空检索返回全部专家', () => {
+    expect(normalizeExpertQuery('  ＵＩ   设计  ')).toBe('ui 设计')
+    expect(filterExperts(experts, { query: '   ' })).toHaveLength(2)
+  })
+
+  it('按 slug、中文名、英文名和简介匹配', () => {
+    expect(matchExpertQuery(experts[0]!, '审查')).toBe(true)
+    expect(filterExperts(experts, { query: 'Historian' }).map((item) => item.slug)).toEqual(['academic-historian'])
+    expect(filterExperts(experts, { query: 'engineering-code' }).map((item) => item.slug)).toEqual(['engineering-code-reviewer'])
+    expect(filterExperts(experts, { query: 'severity' }).map((item) => item.slug)).toEqual(['engineering-code-reviewer'])
+  })
+
+  it('多个关键词可跨名称、分区与简介字段匹配', () => {
+    expect(filterExperts(experts, { query: '工程 severity' }).map((item) => item.slug)).toEqual(['engineering-code-reviewer'])
+    expect(filterExperts(experts, { query: '代码 historian' })).toEqual([])
+  })
+
+  it('中英分区名都能检索到对应专家', () => {
+    expect(filterExperts(experts, { query: '工程' }).map((item) => item.slug)).toEqual(['engineering-code-reviewer'])
+    expect(filterExperts(experts, { query: 'Engineering' }).map((item) => item.slug)).toEqual(['engineering-code-reviewer'])
+    expect(filterExperts(experts, { query: 'Academic' }).map((item) => item.slug)).toEqual(['academic-historian'])
+  })
+
+  it('分类与检索同时生效，无匹配时返回空列表', () => {
+    expect(filterExperts(experts, { division: 'academic' }).map((item) => item.slug)).toEqual(['academic-historian'])
+    expect(filterExperts(experts, { division: 'academic', query: 'review' })).toEqual([])
+    expect(filterExperts(experts, { division: 'engineering', query: 'CODE' }).map((item) => item.slug)).toEqual(['engineering-code-reviewer'])
+  })
+
+  it('已启用专家排在前面，且两组内部保持原有顺序', () => {
+    const list = [
+      { slug: 'first' },
+      { slug: 'second' },
+      { slug: 'third' },
+      { slug: 'fourth' },
+    ]
+    const sorted = sortExpertsByEnabled(list, new Set(['second', 'fourth']))
+    expect(sorted.map((expert) => expert.slug)).toEqual(['second', 'fourth', 'first', 'third'])
+    expect(list.map((expert) => expert.slug)).toEqual(['first', 'second', 'third', 'fourth'])
+  })
+
+  it('首次排序后，单项启停不会改变当前设置页的卡片顺序', () => {
+    const list = [
+      { slug: 'first' },
+      { slug: 'second' },
+      { slug: 'third' },
+      { slug: 'fourth' },
+    ]
+    const initialOrder = sortExpertsByEnabled(list, new Set(['second', 'fourth'])).map((expert) => expert.slug)
+
+    expect(sortExpertsByOrder(list, initialOrder).map((expert) => expert.slug))
+      .toEqual(['second', 'fourth', 'first', 'third'])
+    expect(sortExpertsByOrder([list[0]!, list[3]!], initialOrder).map((expert) => expert.slug))
+      .toEqual(['fourth', 'first'])
+  })
+})
+
+describe('expertAvatarIndex', () => {
+  it('同一 slug 始终映射到相同的复用头像，并限制在有效范围', () => {
+    const first = expertAvatarIndex('engineering-code-reviewer', 8)
+    expect(first).toBe(expertAvatarIndex('engineering-code-reviewer', 8))
+    expect(first).toBeGreaterThanOrEqual(0)
+    expect(first).toBeLessThan(8)
+    expect(expertAvatarIndex('engineering-code-reviewer', 0)).toBe(0)
+  })
+
+  it('36 张头像按五大分类完整且不重复分配', () => {
+    expect(EXPERT_AVATAR_POOL_INDEXES.development).toHaveLength(12)
+    expect(EXPERT_AVATAR_POOL_INDEXES.writing).toHaveLength(8)
+    expect(EXPERT_AVATAR_POOL_INDEXES.product).toHaveLength(6)
+    expect(EXPERT_AVATAR_POOL_INDEXES.research).toHaveLength(6)
+    expect(EXPERT_AVATAR_POOL_INDEXES.design).toHaveLength(4)
+
+    const indexes = Object.values(EXPERT_AVATAR_POOL_INDEXES).flat()
+    expect(indexes).toHaveLength(36)
+    expect(new Set(indexes).size).toBe(36)
+    expect(Math.min(...indexes)).toBe(0)
+    expect(Math.max(...indexes)).toBe(35)
+  })
+
+  it('专家只在所属分类头像池内稳定映射', () => {
+    const developmentIndex = expertAvatarIndexForDivision('engineering-code-reviewer', 'engineering')
+    const writingIndex = expertAvatarIndexForDivision('marketing-copywriter', 'marketing')
+    expect(EXPERT_AVATAR_POOL_INDEXES.development).toContain(developmentIndex)
+    expect(EXPERT_AVATAR_POOL_INDEXES.writing).toContain(writingIndex)
+    expect(developmentIndex).toBe(expertAvatarIndexForDivision('engineering-code-reviewer', 'engineering'))
+  })
+
+  it('321 位专家覆盖全部头像，且分类池内均衡复用', () => {
+    const usage = new Map<number, number>()
+    for (const expert of ROSTER) {
+      const index = expertAvatarIndexForDivision(expert.slug, expert.division)
+      usage.set(index, (usage.get(index) ?? 0) + 1)
+    }
+
+    expect(usage.size).toBe(36)
+    for (const pool of Object.values(EXPERT_AVATAR_POOL_INDEXES)) {
+      const counts = pool.map((index) => usage.get(index) ?? 0)
+      expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1)
+    }
+  })
+})
+
+describe('专家库目标稿样式契约', () => {
+  it('浮层菜单对齐宿主模态卡片层级背景与面板圆角', () => {
+    expect(COMPOSER_CSS).toContain('background:var(--dsw-alias-bg-layer-2);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent)')
+    expect(COMPOSER_CSS).toContain('border-radius:var(--dsw-radius-panel,16px)')
+    expect(SETTINGS_CSS).not.toContain('.aag-select-menu')
+  })
+
+  it('设置页大标题使用简洁的专家名称', () => {
+    expect(zh['settings.title']).toBe('专家')
+    expect(en['settings.title']).toBe('Experts')
+  })
+
+  it('保留宿主原设置位置，不改写对话框、导航或全屏尺寸', () => {
+    expect(CARD_SETTINGS_CSS).not.toContain('[role="dialog"]')
+    expect(CARD_SETTINGS_CSS).not.toContain('width:100vw!important')
+    expect(CARD_SETTINGS_CSS).not.toContain('flex:0 0 225px!important')
+    expect(CARD_SETTINGS_CSS).not.toContain('grid-template-columns:403px 403px minmax(0,1fr)')
+    expect(CARD_SETTINGS_CSS).toContain('.aag-section{container-type:inline-size}')
+  })
+
+  it('专家卡片固定高度，单行标题紧凑排版', () => {
+    expect(CARD_SETTINGS_CSS).toContain('.aag-expert-card{display:grid')
+    expect(CARD_SETTINGS_CSS).toContain('height:191px;min-height:191px')
+    expect(CARD_SETTINGS_CSS).toContain('.aag-card-name{display:flex')
+    expect(CARD_SETTINGS_CSS).not.toContain('min-height:190px')
+  })
+
+  it('圆形小头像释放正文宽度，简介独占整行并展示三行', () => {
+    expect(CARD_SETTINGS_CSS).toContain('.aag-expert-avatar{display:block;width:44px;height:44px')
+    expect(CARD_SETTINGS_CSS).toContain('border-radius:50%')
+    expect(CARD_SETTINGS_CSS).toContain('.aag-card-description{flex:1;display:-webkit-box')
+    expect(CARD_SETTINGS_CSS).toContain('-webkit-line-clamp:3')
+  })
+
+  it('分类筛选覆盖全部原始分区，专家卡片默认两列且保持紧凑', () => {
+    const expectedDivisions = new Set(ROSTER.map((expert) => expert.division))
+    const values = expertDivisionFilterValues()
+    expect(values[0]).toBe('')
+    expect(values.at(-1)).toBe('academic')
+    expect(values).toHaveLength(expectedDivisions.size + 1)
+    expect(new Set(values.slice(1))).toEqual(expectedDivisions)
+    expect(CARD_SETTINGS_CSS).toContain('.aag-expert-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))')
+    expect(CARD_SETTINGS_CSS).not.toContain('width:80px;height:107px')
+    expect(CARD_SETTINGS_CSS).toContain('min-height:32px')
+  })
+
+  it('筛选按内容宽度排列，搜索吃掉剩余空间', () => {
+    expect(CARD_SETTINGS_CSS).toContain('.aag-card-filters{align-items:center;justify-content:flex-start;flex-wrap:wrap;gap:8px 12px;min-width:0}')
+    expect(CARD_SETTINGS_CSS).toContain('.aag-card-filters .aag-field-source,.aag-card-filters .aag-field-category,.aag-card-filters .aag-field-status{flex:0 0 auto;width:auto;max-width:none}')
+    expect(CARD_SETTINGS_CSS).toContain('.aag-card-filters .aag-field-search{flex:1 1 0;min-width:0;width:100%}')
+    expect(CARD_SETTINGS_CSS).not.toContain('.aag-field-category{flex:0 1 220px}')
+  })
+
+  it('移动端窄屏下筛选栏紧凑三等分网格，消除纵向空白拉伸', () => {
+    expect(CARD_SETTINGS_CSS).toContain('@media(max-width:560px){.aag-card-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))')
+    expect(CARD_SETTINGS_CSS).not.toContain('flex:1 1 120px')
+  })
+
+  it('卡片设置页使用宿主主题表面和边框颜色', () => {
+    expect(CARD_SETTINGS_CSS).not.toMatch(/#[0-9a-f]{6}/iu)
+    expect(CARD_SETTINGS_CSS).toContain('background:var(--dsw-alias-bg-layer-1)')
+    expect(CARD_SETTINGS_CSS).toContain('border:0.5px solid var(--dsw-alias-border-l2)')
+  })
+})
+
+describe('@ 菜单分组标题本地化', () => {
+  it("DSH peer 与 engines 开放 0.2.x 宿主代际范围", () => {
+    const range = ">=0.2.0-rc.1 <0.3.0-0";
+    expect((PACKAGE_MANIFEST.engines as any)?.dsh).toBe(range);
+    const peers = PACKAGE_MANIFEST.peerDependencies;
+    expect(peers?.["@deepseek-ai/dsh"]).toBe(range);
+    expect(PACKAGE_MANIFEST.peerDependenciesMeta?.["@deepseek-ai/dsh"]?.optional).toBe(true);
+
+    for (const [name, version] of Object.entries(peers ?? {})) {
+      if (name.startsWith("@deepseek-ai/dsh-")) {
+        expect(version).toBe(range);
+        expect(version).not.toMatch(/0\.1\./u);
+      }
+    }
+    expect(peers?.["@deepseek-ai/dsh-client-ui-primitives"]).toBe(range);
+    expect(PACKAGE_MANIFEST.dsh?.client?.inject).toContain("@deepseek-ai/dsh-client-ui-primitives");
+    expect(PACKAGE_MANIFEST.dsh?.client?.inject).not.toContain(
+      "@deepseek-ai/dsh-client-ui-renderer",
+    );
+    expect(PACKAGE_MANIFEST.dsh?.client?.inject).not.toContain(
+      "@deepseek-ai/dsh-client-ui-session",
+    );
+  });
+
+  it('使用套件统一的 Node 与 pnpm 版本', () => {
+    expect(PACKAGE_MANIFEST.engines?.node).toBe('^22.19.0 || >=24.0.0')
+    expect(PACKAGE_MANIFEST.packageManager).toBe('pnpm@11.22.0')
+  })
+
+  it('DSH 开发依赖固定为 0.2.2-rc.1', () => {
+    for (const [name, version] of Object.entries(PACKAGE_MANIFEST.devDependencies ?? {})) {
+      if (name.startsWith('@deepseek-ai/dsh-')) {
+        expect(version).toBe('0.2.2-rc.1')
+      }
+    }
+    expect(PACKAGE_MANIFEST.devDependencies?.['@deepseek-ai/dsh-client-ui-primitives']).toBe('0.2.2-rc.1')
+  })
+
+  it('设置标题提供 GitHub 与问题反馈两个入口', () => {
+    expect(SETTINGS_GITHUB_LINKS).toEqual([
+      {
+        href: 'https://github.com/MichengAI/dsh-agency-agents',
+        labelKey: 'settings.viewProject',
+        icon: 'github',
+      },
+      {
+        href: 'https://github.com/MichengAI/dsh-agency-agents/issues',
+        labelKey: 'settings.feedback',
+        icon: 'feedback',
+      },
+    ])
+    expect(zh['settings.viewProject']).toBe('GitHub')
+    expect(zh['settings.feedback']).toBe('问题反馈')
+    expect(en['settings.viewProject']).toBe('GitHub')
+    expect(en['settings.feedback']).toBe('Issues')
+  })
+
+  it('按当前语言返回分区显示名，未知分区回退原值', () => {
+    expect(inputTriggerSourceName('design', 'zh')).toBe('设计')
+    expect(inputTriggerSourceName('design', 'en')).toBe('Design')
+    expect(inputTriggerSourceName('custom', 'zh')).toBe('custom')
+  })
+
+  it('候选名称只保留专家名，选中时也不带回 emoji', () => {
+    const expert = { name: '代码审查工程师', nameEn: 'Code Reviewer', emoji: '🔍' }
+    expect(inputTriggerCandidateName(expert, 'zh')).toBe('代码审查工程师')
+    expect(inputTriggerCandidateName(expert, 'en')).toBe('Code Reviewer')
+    expect(inputTriggerPickName('engineering-code-reviewer', '🔍 代码审查工程师', 'zh')).toBe('代码审查工程师')
+    expect(inputTriggerPickName('engineering-code-reviewer', '🔍 Code Reviewer', 'en')).toBe('Code Reviewer')
+    expect(inputTriggerPickName('missing', '未知专家', 'zh')).toBe('未知专家')
+  })
+
+  it('将专家名称格式化为 @ 提及，并只把已启用专家加入输入框词典', () => {
+    const experts = [
+      { slug: 'engineering-code-reviewer', name: '代码审查工程师', nameEn: 'Code Reviewer' },
+      { slug: 'design-creative-designer', name: '创意设计师', nameEn: 'Creative Designer' },
+    ]
+
+    expect(formatExpertMention('创意设计师')).toBe('@创意设计师')
+    expect(formatExpertMention('@创意设计师')).toBe('@创意设计师')
+    expect(formatExpertMentionInsertion('创意设计师')).toBe('@创意设计师\u00A0')
+    expect(buildExpertMentionLexicon(experts, new Set(['design-creative-designer']), 'zh')).toEqual(['创意设计师'])
+    expect(buildExpertMentionLexicon(experts, new Set(['design-creative-designer']), 'en')).toEqual(['Creative Designer'])
+  })
+
+  it('将专家插入投影为带图标的原生引用 chip，内部 ID 不泄露到文本', () => {
+    const expert = {
+      slug: 'engineering-code-reviewer',
+      name: '代码审查工程师',
+      nameEn: 'Code Reviewer',
+      emoji: '🔍',
+      division: 'engineering',
+    }
+
+    expect(inputTriggerSourceId('engineering')).toBe('@michengai/dsh-agency-agents:engineering')
+    expect(buildExpertReference(expert, 'zh')).toEqual({
+      source: '@michengai/dsh-agency-agents:engineering',
+      ref: 'engineering-code-reviewer',
+      label: '代码审查工程师',
+      appearance: 'session',
+      clipboardText: '@代码审查工程师\u00A0',
+    })
+    expect(buildExpertReference(expert, 'en')).toMatchObject({
+      source: '@michengai/dsh-agency-agents:engineering',
+      label: 'Code Reviewer',
+      appearance: 'session',
+      clipboardText: '@Code Reviewer\u00A0',
+    })
+  })
+
+  it('工具栏连续选择专家时将 chip 追加到既有专家后，并保留一个分隔空格', () => {
+    const calls: unknown[] = []
+    let draft = '\uFFFC '
+    let draftRev = 42
+    const reference = {
+      source: '@michengai/dsh-agency-agents:engineering',
+      ref: 'engineering-code-reviewer',
+      label: '代码审查工程师',
+      appearance: 'session' as const,
+      clipboardText: '@代码审查工程师\u00A0',
+    }
+    const target = {
+      state: { getSnapshot: () => ({ draft, draftRev }) },
+      insertReference: (value: unknown, span: unknown): boolean => {
+        calls.push(value, span)
+        const token = span as { readonly start: number; readonly end: number; readonly draftRev: number }
+        if (token.draftRev !== draftRev) return false
+        const tail = draft.slice(token.end)
+        const inserted = `\uFFFC${tail === '' || tail[0] !== ' ' ? ' ' : ''}`
+        draft = draft.slice(0, token.start) + inserted + tail
+        draftRev += 1
+        return true
+      },
+    }
+
+    expect(insertExpertReference(target, reference)).toBe(true)
+    expect(calls).toEqual([reference, { start: 2, end: 2, draftRev: 42 }])
+    expect(draft).toBe('\uFFFC \uFFFC ')
+    expect(insertExpertReference(undefined, reference)).toBe(false)
+  })
+
+  it('兼容旧格式的 chip 与空格交替前缀，仍追加到最后一个 chip 后', () => {
+    const calls: unknown[] = []
+    const reference = {
+      source: '@michengai/dsh-agency-agents:engineering',
+      ref: 'engineering-code-reviewer',
+      label: '代码审查工程师',
+      appearance: 'session' as const,
+      clipboardText: '@代码审查工程师\u00A0',
+    }
+    const target = {
+      state: { getSnapshot: () => ({ draft: '\uFFFC \uFFFC 请审查这段代码', draftRev: 8 }) },
+      insertReference: (value: unknown, span: unknown): boolean => {
+        calls.push(value, span)
+        return true
+      },
+    }
+
+    expect(insertExpertReference(target, reference)).toBe(true)
+    expect(calls).toEqual([reference, { start: 4, end: 4, draftRev: 8 }])
+  })
+
+  it('优先采用宿主 occurrence 偏移，避免草稿投影隐藏占位符时把专家插到开头', () => {
+    const calls: unknown[] = []
+    const reference = {
+      source: '@michengai/dsh-agency-agents:engineering',
+      ref: 'engineering-code-reviewer',
+      label: '代码审查工程师',
+      clipboardText: '@代码审查工程师\u00A0',
+    }
+    const target = {
+      state: {
+        getSnapshot: () => ({
+          draft: '? ',
+          draftRev: 9,
+          occurrences: [{ source: '@michengai/dsh-agency-agents:design', offset: 0 }],
+        }),
+      },
+      insertReference: (_value: unknown, span: unknown): boolean => {
+        calls.push(span)
+        return false
+      },
+    }
+
+    expect(insertExpertReference(target, reference)).toBe(false)
+    expect(calls).toEqual([{ start: 2, end: 2, draftRev: 9 }])
+  })
+
+  it('工具栏仅在原生 chip 插入成功后才视为选择成功', () => {
+    const calls: unknown[] = []
+    const insertReference = (reference: unknown): boolean => {
+      calls.push(reference)
+      return true
+    }
+
+    expect(insertSelectedExpert('engineering-code-reviewer', 'zh', insertReference)).toBe(true)
+    expect(calls).toHaveLength(1)
+    expect(insertSelectedExpert('missing-expert', 'zh', insertReference)).toBe(false)
+    expect(insertSelectedExpert('engineering-code-reviewer', 'zh', () => false)).toBe(false)
+    expect(insertSelectedExpert('engineering-code-reviewer', 'zh', undefined)).toBe(false)
+  })
+
+  it('历史 chip 的专家已移除时不抛错、不泄露内部 slug', () => {
+    expect(expertMentionFromReference('engineering-code-reviewer', 'zh')).toBe('@代码审查工程师\u00A0')
+    expect(expertMentionFromReference('engineering-code-reviewer', 'en')).toBe('@Code Reviewer\u00A0')
+    expect(expertMentionFromReference('missing-expert', 'zh')).toBe('@已移除专家（请重新选择）\u00A0')
+    expect(expertMentionFromReference('missing-expert', 'en')).toBe('@Removed expert (please reselect)\u00A0')
+  })
+
+  it('slot 未提供 sessionId 时回退解析当前会话输入机', () => {
+    const actx = {} as Context
+    const target = {
+      state: { getSnapshot: () => ({ draft: '', draftRev: 1 }) },
+      insertReference: (): boolean => true,
+    }
+    const calls: string[] = []
+
+    const resolved = resolveReferenceInsertionTarget({
+      list: { getSnapshot: () => ({ current: 'current-session' as SessionId }) },
+      binding: (id: string) => {
+        calls.push(id)
+        return { ctx: actx }
+      },
+    }, undefined, (context: Context) => context === actx
+      ? { input: { for: (candidate: Context) => candidate === actx ? target : undefined } }
+      : undefined)
+
+    expect(resolved).toBe(target)
+    expect(calls).toEqual(['current-session'])
+  })
+
+  it('alpha.2 无 current 时按 retainedBy.mainView 反查主视图会话', () => {
+    expect(resolveTargetSessionId({
+      list: {
+        getSnapshot: () => ({
+          byId: {
+            other: { id: 'other' as SessionId, retainedBy: {} },
+            main: { id: 'main-view' as SessionId, retainedBy: { mainView: 1 } },
+          },
+        }),
+      },
+    })).toBe('main-view')
+    expect(resolveTargetSessionId({
+      list: { getSnapshot: () => ({ byId: { parked: { retainedBy: {} } } }) },
+    })).toBeUndefined()
+    expect(resolveTargetSessionId({
+      list: {
+        getSnapshot: () => ({
+          current: 'legacy' as SessionId,
+          byId: { main: { id: 'main-view' as SessionId, retainedBy: { mainView: 1 } } },
+        }),
+      },
+    })).toBe('legacy')
+    expect(resolveTargetSessionId({
+      list: {
+        getSnapshot: () => ({
+          byId: { main: { id: 'main-view' as SessionId, retainedBy: { mainView: 1 } } },
+        }),
+      },
+    }, 'explicit' as SessionId)).toBe('explicit')
+  })
+
+  it('打开专家菜单时保持编辑器焦点，保证候选项可定位 chip 插入位置', () => {
+    let prevented = false
+
+    keepComposerFocus({ preventDefault: () => { prevented = true } })
+
+    expect(prevented).toBe(true)
+  })
+
+  it('专家菜单按触发按钮实际可用空间展开并保持在视口内', () => {
+    expect(resolveExpertMenuPosition({ top: 640, bottom: 668 } as DOMRect, 694))
+      .toEqual({ placement: 'above', maxHeight: 624 })
+    expect(resolveExpertMenuPosition({ top: 56, bottom: 84 } as DOMRect, 694))
+      .toEqual({ placement: 'below', maxHeight: 594 })
+    expect(resolveExpertMenuPosition({ top: 12, bottom: 40 } as DOMRect, 52))
+      .toEqual({ placement: 'above', maxHeight: 0 })
+  })
+})
+
+describe('list_experts 语言切换', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'aag-'))
+    await mkdir(join(dir, 'engineering'), { recursive: true })
+    await writeFile(join(dir, 'engineering', 'engineering-code-reviewer.md'), '---\nname: Code Reviewer\ndescription: 中文简介\ndescriptionEn: English intro\nemoji: "🔍"\n---\nbody', 'utf8')
+  })
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  function install(locale?: 'zh' | 'en'): {
+    list: {
+      execute: (args: unknown) => Promise<{ divisions: Array<{ division: string; count: number; experts?: Array<{ name: string; description: string }> }>; total: number }>
+      output: { render: (args: unknown, value: unknown) => Array<{ type: string; text: string }> }
+    }
+  } {
+    const tools: unknown[] = []
+    const ctx = {
+      tools: { register: (tool: unknown) => tools.push(tool) },
+      subagents: { getProvider: () => undefined },
+      systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+      settings: alphaSettings(['engineering-code-reviewer'], locale),
+      inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+        cb({ settings: { register: () => ({ get: () => ({ enabled: ['engineering-code-reviewer'] }), watch: () => () => {} }) }, effect: () => () => {} })
+      },
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'] })
+    const list = tools.find((tool) => (tool as { name?: string }).name === 'list_experts') as {
+      execute: (args: unknown) => Promise<{ divisions: Array<{ division: string; count: number; experts?: Array<{ name: string; description: string }> }>; total: number }>
+      output: { render: (args: unknown, value: unknown) => Array<{ type: string; text: string }> }
+    }
+    return { list }
+  }
+
+  it('apply 注册的团队工具反复读取 schema 时不重新 describe 设置', () => {
+    const tools: Array<{ name: string; description: string; parameters: unknown }> = []
+    const describeSettings = vi.fn(() => [
+      { ns: 'locale', value: { preference: 'en' } },
+      { ns: 'agency-agents', revision: 0 },
+    ])
+    const ctx = {
+      tools: { register: (tool: typeof tools[number]) => tools.push(tool) },
+      subagents: { getProvider: () => undefined },
+      systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+      settings: { ...alphaSettings([]), describe: describeSettings },
+      inject: () => undefined,
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'] })
+    const teams = tools.filter(tool => ['list_expert_teams', 'get_expert_team', 'summon_expert_team'].includes(tool.name))
+    expect(teams).toHaveLength(3)
+    const readsAfterApply = describeSettings.mock.calls.length
+    expect(readsAfterApply).toBeGreaterThan(0)
+    for (let i = 0; i < 76; i++) {
+      for (const tool of teams) {
+        expect(JSON.stringify({ description: tool.description, parameters: tool.parameters })).not.toMatch(/[\u3400-\u9fff]/u)
+      }
+    }
+    expect(describeSettings).toHaveBeenCalledTimes(readsAfterApply)
+  })
+
+  it('已注册团队工具的说明和参数说明随宿主语言切换', () => {
+    let locale = 'zh'
+    const tools: Array<{ name: string; description: string; parameters: unknown }> = []
+    const ctx = {
+      tools: { register: (tool: typeof tools[number]) => tools.push(tool) },
+      subagents: { getProvider: () => undefined },
+      systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+      settings: { ...alphaSettings([]), get: () => ({ preference: locale }) },
+      inject: () => undefined,
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'] })
+    const teams = tools.filter(tool => ['list_expert_teams', 'get_expert_team', 'summon_expert_team'].includes(tool.name))
+    expect(teams).toHaveLength(3)
+    for (const tool of teams) expect(tool.description).toMatch(/[\u3400-\u9fff]/u)
+    locale = 'en'
+    for (const tool of teams) expect(JSON.stringify({ description: tool.description, parameters: tool.parameters })).not.toMatch(/[\u3400-\u9fff]/u)
+    locale = 'zh'
+    for (const tool of teams) expect(tool.description).toMatch(/[\u3400-\u9fff]/u)
+  })
+
+  it('专家团任务参数同样禁止把带引号的源码写进工具 JSON', () => {
+    let locale = 'en'
+    const tools: Array<{ name: string; description: string; parameters: unknown }> = []
+    const sections: Array<{ name: string; text: (context: unknown) => string }> = []
+    const ctx = {
+      tools: { register: (tool: typeof tools[number]) => tools.push(tool) },
+      subagents: { getProvider: () => undefined },
+      systemPrompt: { section: (section: { name: string; text: (context: unknown) => string }) => sections.push(section) },
+      settings: { ...alphaSettings([]), get: () => ({ preference: locale }) },
+      inject: () => undefined,
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'] })
+    const team = tools.find(tool => tool.name === 'summon_expert_team')
+    const english = JSON.stringify(team?.parameters ?? {})
+    expect(english).toContain('Do not paste source, CSS, HTML, or quoted code')
+    expect(english).toContain('20000')
+    expect(english).not.toContain('{0}')
+    locale = 'zh'
+    const prompt = sections.find(section => section.name === 'agency:teams')?.text({ agent: { session: { header: {} } } }) ?? ''
+    expect(prompt).toContain('不要把源码、CSS、HTML 或带引号的代码写进工具参数')
+  })
+
+  it('settings locale=zh 时可用中文分区名筛选，并返回中文名和简介', async () => {
+    const { list } = install('zh')
+    const result = await list.execute({ division: '工程' })
+    expect(result).toMatchObject({
+      divisions: [{
+        division: 'engineering',
+        experts: [{ name: '代码审查工程师', description: '中文简介' }],
+      }],
+      total: 1,
+    })
+    expect(list.output.render({ division: '工程' }, result)[0]?.text).toContain('## 工程（1）')
+  })
+
+  it('settings locale=en 时返回英文名和简介，分区标题用英文', async () => {
+    const { list } = install('en')
+    const result = await list.execute({ division: 'engineering' })
+    expect(result.divisions[0]?.experts).toEqual([
+      { name: 'Code Reviewer', emoji: '🔍', description: 'English intro' },
+    ])
+    expect(list.output.render({ division: 'engineering' }, result)[0]?.text).toContain('## Engineering (1)')
+  })
+})
+
+
+describe('validateSummonSpecs', () => {
+  it('拒绝空数组、超量专家、空任务和超长任务', () => {
+    expect(() => validateSummonSpecs([], 'zh')).toThrow(formatHost('zh', 'error.expertsEmpty'))
+    const tooMany = Array.from({ length: SUMMON_EXPERTS_MAX + 1 }, (_, index) => ({ expert: `e${index}`, task: 'do' }))
+    expect(() => validateSummonSpecs(tooMany, 'zh')).toThrow(formatHost('zh', 'error.expertsTooMany', { max: SUMMON_EXPERTS_MAX, count: SUMMON_EXPERTS_MAX + 1 }))
+    expect(() => validateSummonSpecs([{ expert: 'reviewer', task: '   ' }], 'zh')).toThrow(formatHost('zh', 'error.taskEmpty', { index: 1 }))
+    const longTask = '汉'.repeat(SUMMON_TASK_MAX_CHARS + 1)
+    expect(() => validateSummonSpecs([{ expert: 'reviewer', task: longTask }], 'en')).toThrow(formatHost('en', 'error.taskTooLong', { index: 1, length: SUMMON_TASK_MAX_CHARS + 1, max: SUMMON_TASK_MAX_CHARS }))
+  })
+
+  it('拒绝缺失或空白的专家名', () => {
+    expect(() => validateSummonSpecs([{ task: 'do' }], 'zh')).toThrow(formatHost('zh', 'error.expertEmpty', { index: 1 }))
+    expect(() => validateSummonSpecs([{ expert: '   ', task: 'do' }], 'zh')).toThrow(formatHost('zh', 'error.expertEmpty', { index: 1 }))
+    expect(() => validateSummonSpecs([{ expert: 'reviewer', task: 'do' }, { expert: null, task: 'do' }], 'en')).toThrow(formatHost('en', 'error.expertEmpty', { index: 2 }))
+  })
+
+  it('接受上限数量的合法任务', () => {
+    const specs = Array.from({ length: SUMMON_EXPERTS_MAX }, (_, index) => ({ expert: `e${index}`, task: 'review' }))
+    expect(validateSummonSpecs(specs, 'zh')).toHaveLength(SUMMON_EXPERTS_MAX)
+  })
+})
+
+describe('mapPool', () => {
+  it('并发不超过上限，且保持输入顺序', async () => {
+    let inflight = 0
+    let peak = 0
+    const values = await mapPool([1, 2, 3, 4, 5], 2, async (item) => {
+      inflight += 1
+      peak = Math.max(peak, inflight)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      inflight -= 1
+      return item * 10
+    })
+    expect(values).toEqual([10, 20, 30, 40, 50])
+    expect(peak).toBeLessThanOrEqual(2)
+    expect(SUMMON_EXPERTS_CONCURRENCY).toBe(4)
+  })
+})
+
+describe('toSummonItemResult / renderSummonResults', () => {
+  it('成功项保留答案，失败项走失败词条', () => {
+    const ok = toSummonItemResult('reviewer', { expert: 'reviewer', answer: 'done' })
+    const failed = toSummonItemResult('historian', new Error('boom'))
+    expect(ok).toEqual({ expert: 'reviewer', ok: true, answer: 'done' })
+    expect(failed).toEqual({ expert: 'historian', ok: false, answer: '', error: 'boom' })
+    const text = renderSummonResults('zh', [ok, failed])
+    expect(text).toContain('## reviewer\ndone')
+    expect(text).toContain(formatHost('zh', 'list.expertFailed', { error: 'boom' }))
+  })
+})
+
+describe('summon_experts', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'aag-'))
+    await mkdir(join(dir, 'engineering'), { recursive: true })
+    await writeFile(join(dir, 'engineering', 'reviewer.md'), '---\nname: Reviewer\ndescription: d\n---\nbody', 'utf8')
+    await writeFile(join(dir, 'engineering', 'historian.md'), '---\nname: Historian\ndescription: d\n---\nbody', 'utf8')
+  })
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('一名专家失败时仍返回其余成功结果', async () => {
+    const tools: unknown[] = []
+    const ctx = {
+      tools: { register: (tool: unknown) => tools.push(tool) },
+      subagents: {
+        getProvider: () => ({ capabilities: { persona: true, toolFilter: true, depthLimit: true } }),
+        start: async (_provider: string, options: { label?: string }) => {
+          if (options.label === 'Historian') {
+            return {
+              result: Promise.resolve({ output: [{ type: 'text', text: 'partial' }], stopReason: 'cancelled' }),
+              dispose: async () => undefined,
+            }
+          }
+          return {
+            result: Promise.resolve({ output: [{ type: 'text', text: 'ok-review' }], stopReason: 'completed' }),
+            dispose: async () => undefined,
+          }
+        },
+      },
+      systemPrompt: { section: () => undefined },
+      on: () => () => undefined,
+      settings: alphaSettings(['reviewer', 'historian'], 'zh'),
+      inject: (_deps: unknown, cb: (sctx: unknown) => void) => {
+        cb({ settings: { register: () => ({ get: () => ({ enabled: ['reviewer', 'historian'] }), watch: () => () => {} }) }, effect: () => () => {} })
+      },
+      reflect: { provide: () => undefined },
+    } as unknown as Context
+
+    applyOnHost(ctx, { root: dir, provider: 'spawn', divisions: ['engineering'] })
+    const summon = tools.find((tool) => (tool as { name?: string }).name === 'summon_experts') as {
+      execute: (args: unknown, exec: unknown) => Promise<{ results: Array<{ expert: string; ok: boolean; answer: string; error?: string }> }>
+      output: { render: (args: unknown, value: unknown) => Array<{ type: string; text: string }> }
+    }
+
+    const value = await summon.execute({
+      experts: [
+        { expert: 'reviewer', task: 'review' },
+        { expert: 'historian', task: 'summarize' },
+      ],
+    }, { agent: {} })
+    expect(value.results).toEqual([
+      { expert: 'Reviewer', ok: true, answer: 'ok-review' },
+      { expert: 'historian', ok: false, answer: '', error: formatHost('zh', 'error.expertRun', { reason: 'cancelled', detail: formatHost('zh', 'error.partialOutput', { text: 'partial' }) }) },
+    ])
+    expect(summon.output.render({}, value)[0]?.text).toContain('ok-review')
+    expect(summon.output.render({}, value)[0]?.text).toContain('失败')
+  })
+})

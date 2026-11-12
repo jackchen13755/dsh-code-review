@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "Code Review",
-    "description": "Codex スタイルのコードレビュー。独立したサブ Agent を使用し、多言語レポートを返します。",
+    "title": "Agency Agents",
+    "description": "DeepSeek Harness向けに召喚可能な331名のドメイン専門エージェントを提供。",
     "detail": "README.ja.md"
   }
 }

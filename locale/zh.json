@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "Code Review",
-    "description": "Codex 风格代码审查，使用独立子 Agent，并返回中英文报告。",
+    "title": "Agency Agents",
+    "description": "为 DeepSeek Harness 提供 331 名可召唤的专业智能体。",
     "detail": "README.zh-CN.md"
   }
 }

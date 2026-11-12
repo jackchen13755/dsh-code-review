@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240" viewBox="0 0 640 240" role="img" aria-label="DSH Agency Agents">
+  <rect width="640" height="240" rx="8" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+  <line x1="320" y1="12" x2="320" y2="228" stroke="#30363d" stroke-width="1"/>
+  <rect x="88" y="24" width="72" height="12" fill="#e6edf3"/>
+  <rect x="196" y="24" width="24" height="12" fill="#e6edf3"/>
+  <rect x="64" y="36" width="96" height="12" fill="#e6edf3"/>
+  <rect x="196" y="36" width="36" height="12" fill="#e6edf3"/>
+  <rect x="268" y="36" width="24" height="12" fill="#e6edf3"/>
+  <rect x="52" y="48" width="120" height="12" fill="#e6edf3"/>
+  <rect x="208" y="48" width="84" height="12" fill="#e6edf3"/>
+  <rect x="40" y="60" width="144" height="12" fill="#e6edf3"/>
+  <rect x="208" y="60" width="72" height="12" fill="#e6edf3"/>
+  <rect x="28" y="72" width="168" height="12" fill="#e6edf3"/>
+  <rect x="220" y="72" width="48" height="12" fill="#e6edf3"/>
+  <rect x="28" y="84" width="24" height="12" fill="#e6edf3"/>
+  <rect x="76" y="84" width="168" height="12" fill="#e6edf3"/>
+  <rect x="28" y="96" width="24" height="12" fill="#e6edf3"/>
+  <rect x="100" y="96" width="72" height="12" fill="#e6edf3"/>
+  <rect x="184" y="96" width="60" height="12" fill="#e6edf3"/>
+  <rect x="28" y="108" width="24" height="12" fill="#e6edf3"/>
+  <rect x="124" y="108" width="60" height="12" fill="#e6edf3"/>
+  <rect x="196" y="108" width="48" height="12" fill="#e6edf3"/>
+  <rect x="28" y="120" width="24" height="12" fill="#e6edf3"/>
+  <rect x="136" y="120" width="48" height="12" fill="#e6edf3"/>
+  <rect x="196" y="120" width="48" height="12" fill="#e6edf3"/>
+  <rect x="28" y="132" width="36" height="12" fill="#e6edf3"/>
+  <rect x="148" y="132" width="84" height="12" fill="#e6edf3"/>
+  <rect x="40" y="144" width="24" height="12" fill="#e6edf3"/>
+  <rect x="148" y="144" width="84" height="12" fill="#e6edf3"/>
+  <rect x="40" y="156" width="36" height="12" fill="#e6edf3"/>
+  <rect x="112" y="156" width="24" height="12" fill="#e6edf3"/>
+  <rect x="160" y="156" width="60" height="12" fill="#e6edf3"/>
+  <rect x="52" y="168" width="36" height="12" fill="#e6edf3"/>
+  <rect x="112" y="168" width="36" height="12" fill="#e6edf3"/>
+  <rect x="172" y="168" width="48" height="12" fill="#e6edf3"/>
+  <rect x="64" y="180" width="108" height="12" fill="#e6edf3"/>
+  <rect x="184" y="180" width="48" height="12" fill="#e6edf3"/>
+  <rect x="76" y="192" width="108" height="12" fill="#e6edf3"/>
+  <rect x="112" y="204" width="48" height="12" fill="#e6edf3"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#e6edf3" text-anchor="middle">
+    <text x="480" y="51" font-size="13" xml:space="preserve">  _____   _____ _    _</text>
+    <text x="480" y="67" font-size="13" xml:space="preserve"> |  __ \ / ____| |  | |</text>
+    <text x="480" y="83" font-size="13" xml:space="preserve"> | |  | | (___ | |__| |</text>
+    <text x="480" y="99" font-size="13" xml:space="preserve"> | |  | |\___ \|  __  |</text>
+    <text x="480" y="115" font-size="13" xml:space="preserve"> | |__| |____) | |  | |</text>
+    <text x="480" y="131" font-size="13" xml:space="preserve"> |_____/|_____/|_|  |_|</text>
+    <text x="480" y="161" font-size="12" font-weight="700">AGENCY AGENTS</text>
+    <text x="480" y="179" font-size="12">271 summonable specialists</text>
+    <text x="480" y="197" font-size="12">DeepSeek Harness plugin</text>
+  </g>
+</svg>

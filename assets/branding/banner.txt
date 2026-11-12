@@ -1,0 +1,5 @@
+中文 README 使用 dsh-banner.webp，英文 README 使用 dsh-banner-en.webp，全宽展示。
+两张横幅均不包含版本号，尺寸 2172×724，比例 3:1；通过 custom API 参考归档插件横幅生成，实际返回尺寸沿用参考图。
+采用 WebP quality=90、method=6，保留生成图原始分辨率。
+原图及提示词位于本地 docs 的设计资源目录，不随 npm 包发布。
+旧 banner.png、banner.svg 和 dsh-logo.png 作为历史资产保留；README 不再引用旧版横幅，发布清单使用新的双语 WebP。
