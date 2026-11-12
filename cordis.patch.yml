@@ -5,5 +5,10 @@
 #        + code-review 审查引擎（其中「代码审查专家」走 code-review 的实现）。
 # 基于 Apache-2.0 的 MichengAI/dsh-agency-agents 与 MichengAI/dsh-code-review。
 - insert:
+    # 独立顶层行：api-gateway 只从**根服务表**发现 Remote 路由。
+    # 缺了这一行，src/remote.ts 的 AgencyAgentsRemote 永远不会被挂载，
+    # typert 贡献不存在 → /api/agencyAgents/<method> 全部 404（2026-11-12 踩过）。
+    - id: expert-agents-remote
+      name: '@jackchen13755/dsh-expert-agents/remote'
     - id: expert-agents
       name: '@jackchen13755/dsh-expert-agents'
