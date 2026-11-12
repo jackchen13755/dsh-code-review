@@ -650,7 +650,7 @@ const SETTINGS_NS_CANDIDATES = ['expert-agents', 'agency-agents'] as const
  *   ② 子串命中（覆盖完整包名形态，如 @jackchen13755/dsh-expert-agents）
  *   ③ 都没有 → 用新身份兜底，让报错指向正确名字
  */
-function resolveSettingsNamespace(ctx: Context) {
+export function resolveSettingsNamespace(ctx: Context) {
   let available: string[] = []
   try {
     available = ctx.settings.describe().map(item => String(item.ns))
