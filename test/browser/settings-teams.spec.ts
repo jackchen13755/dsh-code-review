@@ -1,0 +1,462 @@
+import { ROSTER } from '../../src/client/roster'
+import { BUILTIN_TEAMS } from '../../src/team-contract'
+import { test, expect } from '@playwright/test'
+
+test('支持但未启用原生团队时建议开启，不阻断专家团操作', async ({ page }) => {
+  await page.goto('/?teams&settings&teamDisabled')
+  await page.getByRole('tab', { name: '专家团', exact: true }).click()
+  await expect(page.getByRole('note')).toContainText('建议在插件页开启 Agent Team 的 Host 与 Web 层')
+  await page.getByRole('button', { name: '新建专家团', exact: true }).click()
+  await page.getByRole('menuitem', { name: '人工创建', exact: true }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+})
+
+test('团队编辑保留停用状态，配置冲突先核对再保存', async ({ page }) => {
+  await page.goto('/?teams&settings&deleteFailure')
+  await page.getByRole('tab', { name: '专家团', exact: true }).click()
+  const first = page.getByTestId('team-card').first()
+  await first.getByRole('button', { name: '复制并自定义', exact: true }).click()
+  await page.getByLabel('团队名称', { exact: true }).fill('流程验收团')
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+  const card = page.getByTestId('team-card').filter({ hasText: '流程验收团' })
+  await expect(card.getByRole('switch')).not.toBeChecked()
+  await card.getByRole('button', { name: '编辑专家团', exact: true }).click()
+  await page.getByLabel('一句话简介', { exact: true }).fill('我的草稿简介')
+  await page.evaluate(() =>
+    (
+      window as unknown as { teamFixtureConflict(): void }
+    ).teamFixtureConflict(),
+  )
+  const saveBtn = page.getByRole('button', { name: '保存修改', exact: true })
+  const saveBg = await saveBtn.evaluate((el) => getComputedStyle(el).backgroundColor)
+  expect(saveBg).toBe('rgb(102, 136, 250)')
+  await saveBtn.click()
+  await expect(
+    page.getByRole('button', { name: '保存修改', exact: true }),
+  ).toBeDisabled()
+  await page.getByRole('button', { name: '读取最新配置', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('其他窗口更新的简介')
+  await expect(page.getByLabel('一句话简介', { exact: true })).toHaveValue(
+    '我的草稿简介',
+  )
+  await page.getByRole('button', { name: '保留我的草稿' }).click()
+  await page.getByRole('button', { name: '保存修改', exact: true }).click()
+  await expect(card).toContainText('我的草稿简介')
+  await expect(card.getByRole('switch')).not.toBeChecked()
+  await card.getByRole('button', { name: '删除专家团', exact: true }).click()
+  const confirmation = page.getByRole('dialog', { name: '删除专家团？' })
+  await confirmation.getByRole('button', { name: '确认删除' }).click()
+  await expect(confirmation.getByRole('alert')).toContainText('删除失败')
+  await confirmation.getByRole('button', { name: '确认删除' }).click()
+  await expect(confirmation).toHaveCount(0)
+  await expect(card).toHaveCount(0)
+})
+
+test('专家团复用专家的筛选、卡片操作和编辑抽屉', async ({ page }) => {
+  await page.setViewportSize({ width: 910, height: 887 })
+  await page.goto('/?teams&settings')
+  await page.getByRole('button', { name: '新建专家', exact: true }).click()
+  await page.getByRole('menuitem', { name: '人工创建', exact: true }).click()
+  const expertDialog = page.getByRole('dialog')
+  await expect(expertDialog).toBeVisible()
+  await page.waitForFunction(() => {
+    const dialog = document.querySelector('[role="dialog"]')
+    return dialog !== null && getComputedStyle(dialog).display !== 'none'
+  })
+  const expertDrawer = await expertDialog.boundingBox()
+  await page.screenshot({ path: 'test-results/expert-editor-unified.png' })
+  await page.keyboard.press('Escape')
+  await page.getByRole('tab', { name: '专家团', exact: true }).click()
+  await expect(
+    page.getByRole('button', { name: '新建专家团', exact: true }),
+  ).toBeVisible()
+  const card = page.getByTestId('team-card').first()
+  await expect(card.getByRole('switch')).toBeVisible()
+  await expect(
+    card.getByRole('button', { name: '查看详情', exact: true }),
+  ).toBeVisible()
+  await expect(
+    card.getByRole('button', { name: '复制提示词', exact: true }),
+  ).toHaveCount(0)
+  await card.getByRole('button', { name: '复制并自定义', exact: true }).click()
+  const teamDialog = page.getByRole('dialog')
+  await expect(teamDialog).toBeVisible()
+  await page.waitForFunction(() => {
+    const dialog = document.querySelector('[role="dialog"]')
+    return dialog !== null && getComputedStyle(dialog).display !== 'none'
+  })
+  const teamDrawer = await teamDialog.boundingBox()
+  expect(teamDrawer!.width).toBe(expertDrawer!.width)
+  expect(teamDrawer!.x).toBe(expertDrawer!.x)
+  await page.getByLabel('团队名称', { exact: true }).fill('统一交互测试')
+  await page.keyboard.press('Escape')
+  await expect(
+    page.getByRole('dialog', { name: '放弃未保存修改？' }),
+  ).toBeVisible()
+  const discardBtn = page.getByRole('button', { name: '放弃修改' })
+  await expect(discardBtn).toBeVisible()
+  const discardColor = await discardBtn.evaluate((el) => getComputedStyle(el).color)
+  expect(discardColor).toBe('rgb(239, 68, 68)')
+  const discardBg = await discardBtn.evaluate((el) => getComputedStyle(el).backgroundColor)
+  expect(['rgba(0, 0, 0, 0)', 'transparent'].includes(discardBg)).toBe(true)
+  const discardBorder = await discardBtn.evaluate((el) => getComputedStyle(el).borderColor)
+  expect(discardBorder).toBe('rgb(239, 68, 68)')
+  await discardBtn.hover()
+  const discardHover = await discardBtn.evaluate((el) => {
+    const style = getComputedStyle(el)
+    return { background: style.backgroundColor, border: style.borderColor, color: style.color }
+  })
+  expect(discardHover.background).toBe('rgba(239, 68, 68, 0.15)')
+  expect(discardHover.border).toBe('rgb(239, 68, 68)')
+  expect(discardHover.color).toBe('rgb(239, 68, 68)')
+  await page.keyboard.press('Tab')
+  const cancelBtn = page.getByRole('button', { name: '继续编辑' })
+  await cancelBtn.focus()
+  const focusRing = await cancelBtn.evaluate((el) => {
+    const style = getComputedStyle(el)
+    return {
+      visible: el.matches(':focus-visible'),
+      style: style.outlineStyle,
+      width: style.outlineWidth,
+      color: style.outlineColor,
+    }
+  })
+  expect(focusRing.visible).toBe(true)
+  expect(focusRing.style).not.toBe('none')
+  expect(Number.parseFloat(focusRing.width)).toBeGreaterThan(0)
+  expect(focusRing.color).not.toBe('rgba(0, 0, 0, 0)')
+  await page.getByRole('button', { name: '继续编辑' }).click()
+  await expect(page.getByLabel('团队名称', { exact: true })).toHaveValue(
+    '统一交互测试',
+  )
+  await page.screenshot({ path: 'test-results/team-editor-unified.png' })
+})
+
+test('矮视口下自定义专家操作栏不随表单滚动', async ({ page }) => {
+  await page.setViewportSize({ width: 910, height: 520 })
+  await page.goto('/?teams&settings')
+  await page.getByRole('button', { name: '新建专家', exact: true }).click()
+  await page.getByRole('menuitem', { name: '人工创建', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  const save = page.getByRole('button', { name: '保存并启用', exact: true })
+  const drawer = await dialog.boundingBox()
+  const saveBefore = await save.boundingBox()
+  if (drawer === null || saveBefore === null) throw new Error('弹窗或操作栏未完成布局')
+  expect(saveBefore.y + saveBefore.height).toBeLessThanOrEqual(
+    drawer.y + drawer.height + 1,
+  )
+
+  // 先确认表单确实产生了滚动，再断言滚动只作用于表单、不带走操作栏。
+  const form = dialog.locator('form.aag-custom-body')
+  expect(await form.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(0)
+  await form.evaluate((el) => { el.scrollTop = el.scrollHeight })
+
+  const saveAfter = await save.boundingBox()
+  if (saveAfter === null) throw new Error('滚动后操作栏布局丢失')
+  expect(Math.abs(saveAfter.y - saveBefore.y)).toBeLessThanOrEqual(1)
+  expect(saveAfter.y + saveAfter.height).toBeLessThanOrEqual(
+    drawer.y + drawer.height + 1,
+  )
+  await expect(save).toBeVisible()
+})
+
+test('桌面窗口安全区内专家团操作栏保持在弹窗底部', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 700 })
+  await page.goto('/?teams&settings')
+  // 桌面端窗口会给遮罩留出顶部安全区，弹窗必须按宿主 padding box 收缩，不能写死 100vh。
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty('--dsh-frame-overlay-top', '80px')
+  })
+  await page.getByRole('tab', { name: '专家团', exact: true }).click()
+  await page.getByRole('button', { name: '新建专家团', exact: true }).click()
+  await page.getByRole('menuitem', { name: '人工创建', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  const save = page.getByRole('button', { name: '保存并启用', exact: true })
+  const drawer = await dialog.boundingBox()
+  const saveBefore = await save.boundingBox()
+  if (drawer === null || saveBefore === null) throw new Error('弹窗或操作栏未完成布局')
+  expect(saveBefore.y + saveBefore.height).toBeLessThanOrEqual(
+    drawer.y + drawer.height + 1,
+  )
+
+  const scroll = dialog.locator('.agt-editor-scroll')
+  expect(await scroll.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(0)
+  await scroll.evaluate((el) => { el.scrollTop = el.scrollHeight })
+  const saveAfter = await save.boundingBox()
+  if (saveAfter === null) throw new Error('滚动后操作栏布局丢失')
+  expect(Math.abs(saveAfter.y - saveBefore.y)).toBeLessThanOrEqual(1)
+  expect(saveAfter.y + saveAfter.height).toBeLessThanOrEqual(
+    drawer.y + drawer.height + 1,
+  )
+  await expect(save).toBeVisible()
+
+  // 主理人提示词完整落在滚动区内，而不是被弹窗裁掉一半。
+  const prompt = dialog.locator('.agt-prompt')
+  await prompt.scrollIntoViewIfNeeded()
+  const viewport = await scroll.boundingBox()
+  const promptBox = await prompt.boundingBox()
+  if (viewport === null || promptBox === null) throw new Error('提示词未完成布局')
+  expect(promptBox.y).toBeGreaterThanOrEqual(viewport.y - 1)
+  expect(promptBox.y + promptBox.height).toBeLessThanOrEqual(
+    viewport.y + viewport.height + 1,
+  )
+})
+
+test('桌面窗口安全区内自定义专家提示词完整可达', async ({ page }) => {
+  await page.setViewportSize({ width: 910, height: 520 })
+  await page.goto('/?teams&settings')
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty('--dsh-frame-overlay-top', '80px')
+  })
+  await page.getByRole('button', { name: '新建专家', exact: true }).click()
+  await page.getByRole('menuitem', { name: '人工创建', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  const form = dialog.locator('form.aag-custom-body')
+  const prompt = dialog.locator('.aag-custom-prompt')
+  const viewport = await form.boundingBox()
+  if (viewport === null) throw new Error('表单未完成布局')
+  expect(await form.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(0)
+
+  // 提示词比可视区高，滚到表单底部时其下边缘必须完整露出，而不是被弹窗裁掉。
+  await form.evaluate((el) => { el.scrollTop = el.scrollHeight })
+  const promptBox = await prompt.boundingBox()
+  if (promptBox === null) throw new Error('提示词未完成布局')
+  expect(promptBox.y + promptBox.height).toBeLessThanOrEqual(
+    viewport.y + viewport.height + 1,
+  )
+  expect(promptBox.y + promptBox.height).toBeGreaterThan(viewport.y)
+
+  // 滚到表单底部后，宿主 footer 槽里的操作栏仍在弹窗内。
+  const save = page.getByRole('button', { name: '保存并启用', exact: true })
+  await form.evaluate((el) => { el.scrollTop = el.scrollHeight })
+  const drawer = await dialog.boundingBox()
+  const saveBox = await save.boundingBox()
+  if (drawer === null || saveBox === null) throw new Error('操作栏未完成布局')
+  expect(saveBox.y + saveBox.height).toBeLessThanOrEqual(
+    drawer.y + drawer.height + 1,
+  )
+})
+
+test('矮视口下专家团详情在弹窗内滚动', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 650 })
+  await page.goto('/?teams&settings')
+  await page.getByRole('tab', { name: '专家团', exact: true }).click()
+  await page
+    .getByTestId('team-card')
+    .first()
+    .getByRole('button', { name: '查看详情', exact: true })
+    .click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  const detail = dialog.locator('.agt-dialog.agt-detail')
+  const drawer = await dialog.boundingBox()
+  const body = await detail.boundingBox()
+  if (drawer === null || body === null) throw new Error('详情弹窗未完成布局')
+  expect(body.y + body.height).toBeLessThanOrEqual(drawer.y + drawer.height + 1)
+  expect(await detail.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(0)
+
+  // 底部内容初始在视口外，滚动后可完整看到。
+  const prompt = page.getByRole('button', { name: '查看主理人提示词', exact: true })
+  await expect(prompt).not.toBeInViewport()
+  await detail.evaluate((el) => { el.scrollTop = el.scrollHeight })
+  await expect(prompt).toBeInViewport()
+})
+
+test('专家保留原标题工具栏与来源筛选，专家团采用同一结构', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 910, height: 887 })
+  await page.goto('/?teams&settings')
+  const tabs = page.locator('main .aag-card-filters:visible')
+  const title = page.locator('main section:visible .aag-title').first()
+  await expect(title).toBeVisible()
+  await expect(page.locator('main section:visible .aag-toolbar .aag-title')).toBeVisible()
+  await expect(page.locator('main').getByRole('tab', { name: '专家团', exact: true })).toBeVisible()
+  await expect(page.locator('aside').getByRole('button', { name: '专家团', exact: true })).toHaveCount(0)
+  await expect(page.locator('.aag-expert-card').first()).toBeVisible()
+  await page.screenshot({ path: 'test-results/experts-unified.png' })
+  expect((await title.boundingBox())!.y).toBeLessThan(
+    (await tabs.boundingBox())!.y,
+  )
+  const primary = await page
+    .getByRole('button', { name: '新建专家', exact: true })
+    .evaluate((el) => ({
+      background: getComputedStyle(el).backgroundColor,
+      height: el.getBoundingClientRect().height,
+    }))
+  const card = await page
+    .locator('.aag-expert-card')
+    .first()
+    .evaluate((el) => ({
+      background: getComputedStyle(el).backgroundColor,
+      radius: getComputedStyle(el).borderRadius,
+    }))
+  await page.getByRole('tab', { name: '专家团', exact: true }).click()
+  await expect(page.getByTestId('team-card')).toHaveCount(5)
+  expect((await title.boundingBox())!.y).toBeLessThan(
+    (await tabs.boundingBox())!.y,
+  )
+  expect(
+    await page
+      .getByRole('button', { name: '新建专家团', exact: true })
+      .evaluate((el) => ({
+        background: getComputedStyle(el).backgroundColor,
+        height: el.getBoundingClientRect().height,
+      })),
+  ).toEqual(primary)
+  expect(
+    await page
+      .getByTestId('team-card')
+      .first()
+      .evaluate((el) => ({
+        background: getComputedStyle(el).backgroundColor,
+        radius: getComputedStyle(el).borderRadius,
+      })),
+  ).toEqual(card)
+  const cards = page.getByTestId('team-card')
+  expect((await cards.nth(0).boundingBox())!.y).toBe(
+    (await cards.nth(1).boundingBox())!.y,
+  )
+  await page.screenshot({ path: 'test-results/settings-teams.png' })
+  await page.setViewportSize({ width: 375, height: 812 })
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(375)
+  // 当前正停留在「专家团」页签，验证专家团筛选控件高度适中（<=36px），无纵向拉伸
+  const teamSource = page.locator('#aag-team-source')
+  const teamStatus = page.locator('#aag-team-status')
+  await expect(teamSource).toBeVisible()
+  await expect(teamStatus).toBeVisible()
+  const teamSourceBox = await teamSource.boundingBox()
+  const teamStatusBox = await teamStatus.boundingBox()
+  expect(teamSourceBox!.height).toBeLessThanOrEqual(36)
+  expect(teamStatusBox!.height).toBeLessThanOrEqual(36)
+  // 切回「专家」页签，验证移动端下 3 个筛选下拉框在同一行 3 等分并排
+  await page.getByRole('tab', { name: '专家', exact: true }).click()
+  const sourceEl = page.locator('#aag-filter-source')
+  const catEl = page.locator('#aag-filter-category')
+  const statusEl = page.locator('#aag-filter-status')
+  await expect(sourceEl).toBeVisible()
+  await expect(catEl).toBeVisible()
+  await expect(statusEl).toBeVisible()
+  const sourceBox = await sourceEl.boundingBox()
+  const catBox = await catEl.boundingBox()
+  const statusBox = await statusEl.boundingBox()
+  expect(Math.abs(sourceBox!.y - catBox!.y)).toBeLessThanOrEqual(2)
+  expect(Math.abs(catBox!.y - statusBox!.y)).toBeLessThanOrEqual(2)
+  expect(sourceBox!.height).toBeLessThanOrEqual(36)
+  expect(catBox!.height).toBeLessThanOrEqual(36)
+  expect(statusBox!.height).toBeLessThanOrEqual(36)
+  // 检查搜索框和操作栏都在视口内展示
+  const searchInput = page.locator('#aag-filter-search')
+  const bulkMenu = page.locator('main .aag-card-filters:visible .aag-filter-actions')
+  await expect(searchInput).toBeVisible()
+  await expect(bulkMenu).toBeVisible()
+  // 验证分段器文本没有折行溢出
+  const tabExperts = page.getByRole('tab', { name: '专家', exact: true })
+  const tabTeams = page.getByRole('tab', { name: '专家团', exact: true })
+  const tabExpertsBox = await tabExperts.boundingBox()
+  const tabTeamsBox = await tabTeams.boundingBox()
+  expect(tabExpertsBox!.height).toBeLessThanOrEqual(32)
+  expect(tabTeamsBox!.height).toBeLessThanOrEqual(32)
+  await page.screenshot({ path: 'test-results/settings-mobile-compact.png' })
+})
+
+
+test('切换专家团后保留专家搜索和来源筛选', async ({ page }) => {
+  await page.goto('/?teams&settings')
+  const sourceSelect = page.locator('#aag-filter-source')
+  await sourceSelect.click()
+  await page.getByRole('menuitem', { name: '内置', exact: true }).click()
+  await page.locator('#aag-filter-search').fill('人类学')
+  await page.getByRole('tab', { name: '专家团', exact: true }).click()
+  await page.getByRole('tab', { name: '专家', exact: true }).click()
+  await expect(page.locator('#aag-filter-search')).toHaveValue('人类学')
+  await expect(sourceSelect).toContainText('内置')
+  await expect(page.locator('.aag-expert-card:visible')).toHaveCount(1)
+})
+
+test('一级页签使用官方分段页签，与来源筛选保持紧凑层级', async ({ page }) => {
+  await page.setViewportSize({ width: 910, height: 887 })
+  await page.goto('/?teams&settings')
+    await expect(page.getByRole('tab', { name: '专家', exact: true })).toHaveAttribute('aria-selected', 'true')
+  const navigation = await page.locator('main .aag-library-navigation').boundingBox()
+  const filters = await page.locator('main .aag-card-filters:visible').boundingBox()
+  expect(filters!.y - navigation!.y - navigation!.height).toBeLessThanOrEqual(24)
+})
+
+test('切换团队保留同一个公共头部', async ({ page }) => {
+  await page.goto('/?teams&settings')
+  const header = page.locator('main .aag-title-row').first()
+  const before = await header.boundingBox()
+  const tabsBefore = await page.getByRole('tablist', { name: '专家库类型' }).boundingBox()
+  await page.getByRole('tab', { name: '专家团', exact: true }).click()
+  await expect(page.locator('main .aag-title-row')).toHaveCount(1)
+  expect(await header.boundingBox()).toEqual(before)
+  expect(await page.getByRole('tablist', { name: '专家库类型' }).boundingBox()).toEqual(tabsBefore)
+  await expect(page.getByRole('button', { name: '新建专家团', exact: true })).toBeVisible()
+})
+
+test('数量写在对应页签上，来源选项与新建同行', async ({ page }) => {
+  await page.setViewportSize({ width: 910, height: 887 })
+  await page.goto('/?teams&settings')
+  for (const [tabName, createName, total, idPrefix] of [['专家', '新建专家', String(ROSTER.length), 'aag-filter'], ['专家团', '新建专家团', String(BUILTIN_TEAMS.length), 'aag-team']]) {
+    const tab = page.getByRole('tab', { name: tabName, exact: true })
+    await tab.click()
+    await expect(tab).toContainText(total)
+    await expect(tab).toContainText('已启用')
+    const source = page.locator(`#${idPrefix}-source`)
+    const status = page.locator(`#${idPrefix}-status`)
+    await expect(source).toContainText('全部')
+    const sourceBox = await source.boundingBox()
+    const statusBox = await status.boundingBox()
+    expect(sourceBox!.x).toBeLessThan(statusBox!.x)
+    expect(Math.abs(sourceBox!.y + sourceBox!.height / 2 - statusBox!.y - statusBox!.height / 2)).toBeLessThanOrEqual(8)
+    await expect(page.getByRole('button', { name: createName, exact: true })).toBeVisible()
+  }
+  await expect(page.getByText('内置 / 外部', { exact: true })).toHaveCount(0)
+})
+
+test('保存专家团后仍可直接修改已启用的自定义专家', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/?teams&settings&sharedSettings')
+  await page.getByRole('tab', { name: '专家团', exact: true }).click()
+  await page.getByTestId('team-card').first().getByRole('button', { name: '复制并自定义', exact: true }).click()
+  await page.getByLabel('团队名称', { exact: true }).fill('复现专家团')
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(page.getByText('专家团配置已保存。')).toBeVisible()
+  await page.getByRole('tab', { name: '专家', exact: true }).click()
+  await page.locator('#aag-filter-search').fill('租赁业务顾问')
+  const card = page.locator('.aag-expert-card').filter({ hasText: '租赁业务顾问' })
+  await card.getByRole('button', { name: '编辑专家', exact: true }).click()
+  const drawer = page.getByRole('dialog')
+  await drawer.getByLabel('一句话简介', { exact: true }).fill('团队保存后的修改')
+  await drawer.getByRole('button', { name: '保存修改', exact: true }).click()
+  await expect(page.getByText('已保存。启用的专家现在可通过 @ 或专家按钮选择。')).toBeVisible()
+  await expect(card).toContainText('团队保存后的修改')
+  await expect(card.getByRole('switch')).toBeChecked()
+  await expect(page.getByText('其他窗口')).toHaveCount(0)
+})
+
+test('添加成员默认只看已启用，停用专家仍可加入专家团', async ({ page }) => {
+  await page.goto('/?teams&settings&visual')
+  await page.getByRole('tab', { name: '专家团', exact: true }).click()
+  await page.getByRole('button', { name: '新建专家团', exact: true }).click()
+  await page.getByRole('menuitem', { name: '人工创建', exact: true }).click()
+  await page.getByRole('button', { name: '添加成员', exact: true }).click()
+  const picker = page.getByRole('dialog', { name: '选择团队成员' })
+  await expect(picker).toBeVisible()
+  await expect(picker.locator('.aag-field-status')).toContainText('已启用')
+  await expect(picker.getByRole('note')).toContainText('停用的专家也可以加入专家团')
+  await expect(picker.getByRole('button', { name: '产品经理' })).toBeVisible()
+  await picker.getByLabel('搜索团队成员').fill('前端开发者')
+  await expect(picker.getByText('没有匹配的专家')).toBeVisible()
+  await picker.locator('#agt-picker-status').click()
+  await page.getByRole('menuitem', { name: '全部状态', exact: true }).click()
+  await expect(picker.getByRole('button', { name: '前端开发者' })).toBeVisible()
+  await picker.getByRole('button', { name: '前端开发者' }).click()
+  await expect(page.getByRole('dialog', { name: '新建专家团' })).toContainText('前端开发者')
+})

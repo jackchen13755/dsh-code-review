@@ -1,157 +1,98 @@
-<p align="center">
-  <img src="assets/branding/dsh-code-review-banner.png" alt="DSH Code Review" width="100%">
-</p>
+<div align="center">
+  <img src="assets/branding/dsh-banner.webp" alt="DSH Expert Agents" width="100%">
+</div>
 
 <div align="center">
 
-# DSH Code Review
+  # DSH Expert Agents
 
-**カレントセッションでレビューを開始し、独立した Agent がコードを検査してレポートを返します**
+  **331名の専門エージェント · 5つの組み込み専門家チーム · カスタム協調**
 
-[简体中文](README.zh-CN.md) · [English](README.en.md) · [日本語](README.ja.md) · [Español](README.es.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Русский](README.ru.md) · [Português](README.pt.md)
+  [简体中文](README.zh-CN.md) · [English](README.en.md) · [日本語](README.ja.md) · [Español](README.es.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Русский](README.ru.md) · [Português](README.pt.md)
 
-[更新履歴](CHANGELOG.md) · [Apache-2.0](LICENSE)
+  [専門家一覧](#専門家カテゴリー-22-divisions) · [インストール](#クイックインストール) · [更新履歴](CHANGELOG.md) · [Apache-2.0](LICENSE)
 
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
-[![DSH Plugin](https://img.shields.io/badge/DSH-Plugin-0f766e.svg)](https://github.com/MichengAI/dsh-code-review)
-[![DSH 0.2.2-rc.1 まで対応](https://img.shields.io/badge/DSH-up%20to%200.2.2--rc.1-2563eb.svg)](#ホスト互換性)
-[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.19.0-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org/)
+  [![ライセンス: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+  [![内蔵エージェント-331](https://img.shields.io/badge/Agents-331-0f766e.svg)](#専門家カテゴリー-22-divisions)
+  [![npm package](https://img.shields.io/npm/v/%40michengai%2Fdsh-agency-agents.svg?label=npm%20package)](https://www.npmjs.com/package/@jackchen13755/dsh-expert-agents)
+  [![npm ダウンロード数](https://img.shields.io/npm/dt/%40michengai%2Fdsh-agency-agents.svg?label=downloads)](https://www.npmjs.com/package/@jackchen13755/dsh-expert-agents)
+  [![DSH Web Plugin](https://img.shields.io/badge/DSH%20Web-Plugin-0f766e.svg)](https://github.com/jackchen13755/dsh-expert-agents)
+  [![DSH サポート 0.2.2--rc.1 まで](https://img.shields.io/badge/DSH-0.2.2--rc.1-2563eb.svg)](https://github.com/jackchen13755/dsh-expert-agents)
 
 </div>
 
-DSH Code Review は、DeepSeek Harness 向けのコミュニティコードレビュープラグイン（パッケージ名 `@michengai/dsh-code-review`）です。カレントセッションで `/review` と入力し、範囲を選択するか要件を入力すると、ネイティブの独立したサブ Agent が Git、ソースコード、呼び出し元、テストを自動検査し、メインセッションにレポートを返します。Codex のインストールは不要です。
+> **免責事項**：DSH Expert Agents はコミュニティによって保守されている DeepSeek Harness（DSH）向けプラグインであり、DeepSeek AI 公式の製品ではありません。
 
-## ホスト互换性
+## 機能の概要
 
-ホスト対応範囲：DeepSeek Harness `0.2.x` 全シリーズ（`>=0.2.0-rc.1 <0.3.0-0`）。`0.2.0-rc.1`、`0.2.0-rc.2`、`0.2.1-rc.1`〜`0.2.1-rc.5`、`0.2.2-rc.1` で検証済みであり、以降のすべての 0.2.x RC バージョンに自動対応します。初期バージョンおよび `0.3.0` 世代の破壊的変更はバージョンゲートで遮断されます。`dsh.bundle.patch` 経由で読み込まれます。ネイティブ `spawn` プロバイダー、`userQuestions` サービス、実行環境の質問回答器、およびツール呼び出しに対応したモデルが必要です。
+コードレビュー、デザイン、運用、研究などのタスクにおいて、DSH で適切な専門家を選択することで、専門的な視点から業務を支援します。331名の専門家を内蔵し、インストール後すぐに利用可能です。
 
-npm からインストールするか、ソースからビルドできます。オフラインホストとパッケージリンクは検証済みです。実際のモデルのレビュー品質、言語遵守、異なるプラットフォームでの操作性は実際の検証が必要です。
+- **マルチサーフェス＆デュアルエントリ**：「設定 → エキスパート」モーダル管理をサポートするほか、プラグイン詳細ページでメインナビゲーションバー常駐の「エキスパート」フルパネル（960px 中央配置、モーダルのスクロール制約を完全解消）を有効化可能。
+- **自然言語対話作成（Create with AI）**：新規エキスパートおよびチーム作成で「対話で作成」デュアルエントリをサポート。メインチャットへ自動ジャンプしてプロンプトを事前入力し、対話内で構造化プレビューを出力。複数ターンの微調整後、ホストのネイティブ Ask カード確認を経て編集フォームへ安全に反映（Human-in-the-Loop）。
+- **スマート一括操作（Batch Actions）**：管理フィルターバー右側にネイティブなコンパクト一括メニューを搭載。ソース、カテゴリー、ステータス、キーワード検索と動的に連動し、「フィルター結果を有効化 (N) / 無効化 (M)」「すべて有効化 (331) / すべて無効化」を適応提供。二重確認とアトミックスケジューリングで保護。
+- **331名の全領域専門家名簿**：エンジニアリング、デザイン、プロダクト、マーケティング、法務、財務など22の標準部門を網羅し、瞬時のプレフィックス検索に対応。
+- **専門家チーム（Teams）複数役割協調**：5つの高頻度ビジネスクリティカルチームを内蔵し、最大100個のカスタムチーム作成に対応。タスクの複雑さに応じてリレー推進、並列実行、深層レビューの協調モードを自動選択。
+- **チャット入力欄からのクイック呼び出し**：入力欄左側のロボットアイコンからすばやく選択するか、本文に `@` を入力して専門家およびチーム名簿を瞬時に呼び出し、タスク例をシームレスに入力。
+- **エンタープライズ構成とセキュリティ防御**：プラグイン詳細ページでエントリ表示位置やスマート推薦を個別に設定可能。API は同一生成元と Content-Type 防御に完全対応。
+- **リバースプロキシ配置の完全互換**：ページのベースアドレス（`document.baseURI`）に対して API エンドポイントを自動解決し、パスプレフィックスを除去するリバースプロキシ環境（`/app/dsh/` など）でも無損失で動作。
 
-## 主な機能
+## 専門家チーム (Expert Teams)
 
-- **レビュー範囲の選択**：ベースブランチとの比較、未コミットの変更の検査、特定のコミットの選択、またはカスタム指示の入力。
-- **Agent による自律的な証拠収集**：独立したコンテキストで Git、関連コード、テストを読み取り、事前に全コードのスナップショットを注入しません。
-- **メインセッションで結果を確認**：優先度、ファイルパス、行番号付きの指摘事項を受信。プレーンテキストのモデル応答も保持されます。
-- **多言語レポート対応**：Codex 英文仕様を保持しながら、独立した言語コンテキストでホストの言語設定（8 つの公式言語に対応）に追従。
-- **状態確認またはキャンセル**：最新のレポートの復元、または範囲選択と進行中のレビューのキャンセル。
+「設定 → エキスパート → 専門家チーム」でチームを管理します。単一専門家ページと共通のヘッダー、フィルター、検索およびカード操作を提供します。5つの組み込みチームは以下のシナリオをカバーします：
 
-## 環境要件
+| 専門家チーム | 分析の重点 | 成果物 |
+| --- | --- | --- |
+| プロダクト方案レビュー団 | 要件の価値、ユーザー体験、技術的実現可能性 | 優先順位とアクションリスト |
+| 技術アーキテクチャレビュー団 | アーキテクチャ、セキュリティ、受入境界 | リスクと受入チェックリスト |
+| コンテンツ企画レビュー団 | 企画の視点、拡散戦略、ファクトチェック | 企画案とコンテンツ構造 |
+| データ分析診断団 | 指標体系、データ品質、ビジネス解釈 | 分析結論と検証ステップ |
+| テーマ研究専門家団 | 研究範囲、論拠・証拠、総合判断 | 情報源に基づく研究結論 |
 
-- DeepSeek Harness がインストールされており、PowerShell で `dsh` が実行可能であること。
-- Node.js ≥ `22.19.0`、npm、および Git。Node.js はインストールされている DSH の要件も満たす必要があります。
-- 例では `web` プロファイルを使用しています。実際に DSH を実行しているプロファイルに置き換えてください。
+### 構成と使用法
 
-## DSH プロダクトエコシステム
+1. 組み込みチームをそのまま利用するか、複製して編集します。2〜8名のメンバーからなるカスタムチームを新規作成することも可能（最大100個まで保存）。
+2. 入力欄の `@` メニューでチームを選択すると、タスク要件のサンプルが自動挿入されます。送信前に要件を直接微調整できます。
+3. ホストが Agent Team サービスを有効にしている場合、自律的な並列協調モードが自動的に適用されます。
 
-デスクトップワークベンチを利用したい場合は [DSH Codex Desktop](https://github.com/MichengAI/dsh-codex-desktop/releases) をダウンロードしてください。既存の [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 環境がある場合は、各プロジェクトの README に従って必要に応じてインストールできます。以下に 11 個の自社製プラグインを記載します。デスクトップ同梱範囲は該当バージョンのリリースノートと組み込みカタログに準じます。
+## クイックインストール
 
-| プラグイン | できること |
-| --- | --- |
-| [Codex UI](https://github.com/MichengAI/dsh-codex-ui) | プロジェクトとセッションの整理、タスク検索、対話ターンの切り替え |
-| [Agency Agents](https://github.com/MichengAI/dsh-agency-agents) | タスクに応じて専門エージェントを選択して呼び出し |
-| [Skills Manager](https://github.com/MichengAI/dsh-skills-manager) | ローカルスキルの検索、有効化/無効化、作成、インポートを一元管理 |
-| [Archive Manager](https://github.com/MichengAI/dsh-archive-manager) | アーカイブ済みセッションの検索、復元、クリーンアップ |
-| [IM Connect](https://github.com/MichengAI/dsh-im-connect) | メッセージングプラットフォームからのタスク送信と返信受信 |
-| [Automation](https://github.com/MichengAI/dsh-automation) | スケジュールに従ってタスクを実行し、各実行結果を確認 |
-| [BTW](https://github.com/MichengAI/dsh-btw) | メインタスクを中断せずにカレントコンテキストで一時的な質問を行う |
-| [Simplify](https://github.com/MichengAI/dsh-simplify) | `/simplify` で Git 変更範囲内のコードを整理 |
-| [PUA](https://github.com/MichengAI/dsh-pua) | 失敗時にアプローチ変更と原因調査を促し、完了前に結果を検証 |
-| [Code Review](https://github.com/MichengAI/dsh-code-review) | `/review` で独立 Agent コードレビューを開始し、セッションでレポートを受信 |
-| [Codex Pet](https://github.com/MichengAI/dsh-codex-pet) | デスクトップペットを通じてセッション通知を確認し、ツール承認や質問に回答 |
+```bash
+# Web Profile
+dsh plugin --profile web add @jackchen13755/dsh-expert-agents
 
-## インストール
-
-### Agent にインストールを依頼（推奨）
-
-ローカル端末へのアクセス権を持つ Agent に以下の指示を送信します：
-
-```text
-DSH プラグイン @michengai/dsh-code-review をローカルの web プロファイルにインストールしてください：dsh plugin --profile web add @michengai/dsh-code-review@latest --registry=https://registry.npmjs.org/ を実行し、次に dsh --profile web --dump-config を実行してプラグインが読み込まれていることを確認し、DSH の再起動方法と /review の使用方法を説明してください。いずれかのステップが失敗した場合は停止して原因を報告してください。
+# Desktop Profile
+dsh plugin --profile desktop add @jackchen13755/dsh-expert-agents
 ```
 
-### 手動インストール
+## 専門家カテゴリー (22 Divisions)
 
-次のコマンドを実行します：
 
-```powershell
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$OutputEncoding = [System.Text.Encoding]::UTF8
-dsh plugin --profile web add @michengai/dsh-code-review@latest --registry=https://registry.npmjs.org/
-dsh --profile web --dump-config
-```
+| Division | Key | Count |
+| --- | --- | --- |
+| Engineering | `engineering` | 64 |
+| Marketing | `marketing` | 27 |
+| Design | `design` | 22 |
+| Product | `product` | 21 |
+| Sales | `sales` | 19 |
+| Healthcare | `healthcare` | 18 |
+| Finance | `finance` | 16 |
+| Specialized | `specialized` | 16 |
+| Academic | `academic` | 14 |
+| Research | `research` | 14 |
+| Legal | `legal` | 13 |
+| Support | `support` | 12 |
+| Testing | `testing` | 11 |
+| Project Management | `project-management` | 11 |
+| Game Development | `game-development` | 11 |
+| Spatial Computing | `spatial-computing` | 10 |
+| Company Leadership | `company` | 9 |
+| Human Resources | `hr` | 8 |
+| Security | `security` | 8 |
+| Supply Chain | `supply-chain` | 8 |
+| Paid Media | `paid-media` | 6 |
+| GIS | `gis` | 3 |
 
-各ステップの成功を確認してから次へ進んでください。実際に実行している DSH バックエンドを再起動し、`/review` を入力します。これはネイティブプラグインであり、手動で `lib` をコピーする必要はなく、`SKILL.md` スキルバンドルでもありません。
 
-## 使い方
+## License
 
-| 目的 | 入力 |
-| --- | --- |
-| 範囲選択を開く | `/review` |
-| カスタムレビュー重点の指定 | `/review 前回のコミットの権限回帰を検査` |
-| 進捗状況または最新レポートの確認 | `/review-status` |
-| 選択または実行中のレビューのキャンセル | `/review-cancel` |
-
-空入力では、ベースブランチの比較、未コミット変更のレビュー、特定コミットのレビュー、カスタム指示の 4 つのオプションが提示されます。未コミット範囲にはステージング、未ステージング、未追跡ファイルが含まれます。ベースメニューにはローカルブランチが一覧表示され、コミットメニューには最新 100 件のコミットが表示されます。他の参照を自由に入力することもできます。
-
-コマンド以降の全テキストはカスタム指示として扱われ、CLI フラグとしては解析されません。`--base main`、`.`、`status` は通常のテキストとして渡されます。レビュー範囲と必要なコンテキストはサブ Agent が自律的に判断・取得します。「プロジェクト全体をレビュー」もそのまま渡されますが、全ファイルの完全網羅が検証されたことを意味するものではありません。
-
-## 設定とレポート
-
-| オプション設定 | 動作 |
-| --- | --- |
-| `reviewModel` | 同一モデルプロバイダー下のレビューモデル名。省略時は現在のモデル設定を継承 |
-| `reportDirectory` | レポート保存先の絶対パス。デフォルトは `$DSH_HOME/code-review`、DSH_HOME 未設定時は `~/.dsh/code-review` |
-
-言語設定はホストの `locale.preference` に従います：全 8 つの公式言語（`zh` / `en` / `ja` / `es` / `fr` / `de` / `ru` / `pt`）に対応しています。`settings.describe()` が返す `locale` 構成項目を読み取ります。各ラウンドの開始時に言語が固定され、次回ラウンドで新しい設定が読み込まれます。スラッシュメニューのテキストは言語切り替え時に即時反映され、サーバーで登録されたコマンドの説明はプラグイン読み込み時に決定されます。設定で非公式の言語が明示的に選択された場合、インターフェースとレポートはホストに合わせて英語にフォールバックします。設定で言語が保存されていない場合、バックエンドはデフォルトで中国語となり、スラッシュメニューはホストの検出言語を反映します。
-
-セッションごとに最新のレポートがアトミックに保存されます。セッションに渡されるレポートには、DSH でレンダリング可能な GitHub Flavored Markdown が使用されます：状態見出し、指摘見出し、行番号付きローカルファイルリンク、段落。過去のレポート本文は自動翻訳されません。JSON キー、列挙値、コード、パスは元のまま保持されます。ホスト終了後に未完了のレビューが自動再開されることはありません。ステータス確認、キャンセル、レポート保存は DSH プラグインが提供する機能です。
-
-## よくある質問
-
-### Codex と完全に同じですか？
-
-レビュー仕様とタスクテンプレートは固定のコミット `a592c38c16cdd7623dacc9168926ebccedfb67d3` に基づいています。質問インターフェース、ツール、権限、イベント表示は DSH ネイティブ機能を使用しており、Codex Desktop のピクセル単位のクローンではありません。モデルによって指摘事項が異なる場合があります。
-
-### レビューでコードは変更されますか？
-
-レビュー指示では修正の生成は要求されませんが、ツール層が完全に読み取り専用に強制されているわけではありません。実行方式は Agency エキスパートと同一です：ネイティブ `spawn` を通じてレビュー用のペルソナが注入され、ホストのその他のシステムプロンプトとツールは維持されますが、再帰的なコードレビューおよびエキスパート呼び出しツールのみ無効化されます。権限はホストへの委任時に決定され、プラグインが承認ポリシーを変更したり子セッションの承認を転送したりすることはありません。権限外の操作はホストによって拒否され、レビュー Agent は証拠とテストの制約を説明したレポートを返します。
-
-Git コマンドで Windows サンドボックスの準備失敗が報告された場合や、テストで `spawn EPERM` が発生した場合は、メインセッション側でホスト環境または権限を処理してからレビューを再実行する必要があります。レポートの「完了」は Agent が返答したことを意味し、すべての diff を取得できたことやテストが成功したことを保証するものではありません。具体的な制約はレポート本文をご確認ください。
-
-### インストール後に出力がない場合はどうすればよいですか？
-
-インストールと実行で同じプロファイルが使用されていることを確認し、DSH バックエンドを再起動した上で、`dsh --profile web --dump-config` にプラグインが含まれていることを確認してください。Codex の設計に準拠した純粋なコマンド直接ディスパッチ方式を採用しており、メイン Agent にグローバルツールを公開しないため、コーディング中の自律的なモデル起動を防止します。空の `/review` は対話的な範囲選択のためにホストの質問回答器のみを必要とします。`/review-status` で記録を確認できます。
-
-### 他の言語が表示される場合があるのはなぜですか？
-
-ホスト設定で対象の言語を明示的に選択してください。モデルの出力言語はプロンプトの指示で制御されますが、完全な遵守を保証することはできません。外部ツールの未加工エラー、コード、過去のレポートは自動翻訳されません。
-
-## 開発とコントリビューション
-
-```powershell
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$OutputEncoding = [System.Text.Encoding]::UTF8
-npm ci --ignore-scripts
-npm run check
-npm run verify:package
-dsh plugin --profile web add .\michengai-dsh-code-review-0.1.3.tgz --ignore-scripts
-```
-
-`check` には、TypeScript、プロンプトハッシュ、タスク定義、オフラインモデルによる実際の AgentLoop 回帰テスト、およびドキュメントリンクチェックが含まれます。`verify:package` は隔離されたプロファイルでバンドル、peer、インストールパッケージのホストリンクを検証します。これらのチェックはオンラインモデル検証の代替ではありません。GitHub と npm の両方にそのまま実行可能な `lib` が含まれています。ソースコード変更後はコミット前に `npm run build` を実行してください。
-
-| エントリ | 責務 |
-| --- | --- |
-| [src/index.ts](src/index.ts) | コマンドとレポート返却 |
-| [src/selection.ts](src/selection.ts) | ネイティブ範囲選択 |
-| [src/runtime.ts](src/runtime.ts) | 独立レビュー Agent とツール制約 |
-| [src/request.ts](src/request.ts) | Codex 短文タスクとベース参照の解決 |
-| [src/i18n.ts](src/i18n.ts) | ホスト言語と出力言語コンテキスト |
-| [src/report.ts](src/report.ts) | JSON、抽出 JSON、プレーンテキストの順次フォールバック |
-
-完全な引き継ぎ記録は[閲覧ナビゲーション](docs/00-交接入口/00-阅读导航.md)を参照してください。ロールバックは、以前保持したローカルパッケージを再インストールして DSH を再起動することで行えます。セッションやレポートは削除されません。
-
-## ソースとライセンス
-
-[Apache License 2.0](LICENSE) に基づいて公開されています。Codex の原文およびソース情報については [rubric](assets/codex/review/rubric.md)、[source.json](assets/codex/review/source.json)、および [NOTICE](NOTICE) を参照してください。
-
-上流ソース：[タスクテンプレート](https://github.com/openai/codex/blob/a592c38c16cdd7623dacc9168926ebccedfb67d3/codex-rs/prompts/src/review_request.rs) · [レビュー実行](https://github.com/openai/codex/blob/a592c38c16cdd7623dacc9168926ebccedfb67d3/codex-rs/core/src/tasks/review.rs) · [範囲選択](https://github.com/openai/codex/blob/a592c38c16cdd7623dacc9168926ebccedfb67d3/codex-rs/tui/src/chatwidget/review_popups.rs) · [ベースブランチ解決](https://github.com/openai/codex/blob/a592c38c16cdd7623dacc9168926ebccedfb67d3/codex-rs/git-utils/src/branch.rs)。
+[Apache-2.0](LICENSE) © [MichengAI](https://github.com/MichengAI)

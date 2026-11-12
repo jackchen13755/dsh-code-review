@@ -1,19 +1,2 @@
-import { type Locale } from './i18n.js';
-import type { Context } from '@deepseek-ai/cordis';
-import { type Outcome } from './runtime.js';
-declare module '@deepseek-ai/dsh-llm' {
-    interface MessageSourceMap {
-        'michengai-code-review': {
-            readonly kind: 'michengai-code-review';
-        };
-    }
-}
-export declare const name = "dsh-code-review-fork";
-export declare const inject: string[];
-export declare function renderOutcome(result: Outcome, locale?: Locale): string;
-export interface Config {
-    reportDirectory?: string;
-    reviewModel?: string;
-}
-/** 命令秒级返回并在后台委派原生子 Agent 执行审查，完成后把报告作为会话消息交付。 */
-export declare function apply(ctx: Context, config?: Config): void;
+import { C as stripBom, D as validateSummonSpecs, E as unquote, O as ZH_NAME, S as sanitize, T as truncate, _ as parseFrontmatter, a as SUMMON_EXPERTS_CONCURRENCY, b as resolveCatalogRoot, c as SummonExpertItemResult, d as createAgencyPersonaSource, f as inject, g as name, h as mapPool, i as DEFAULT_DIVISIONS, l as SummonExpertSpec, m as loadCatalog, n as AgencyPersonaSource, o as SUMMON_EXPERTS_MAX, p as liveSchemaField, r as Config, s as SUMMON_TASK_MAX_CHARS, t as AGENCY_PERSONA_SERVICE, u as apply, v as readExpertPrompt, w as toSummonItemResult, x as resolveExpert, y as readLocalizedExpertPrompt } from "./index-BfywisPO.js";
+export { AGENCY_PERSONA_SERVICE, AgencyPersonaSource, Config, DEFAULT_DIVISIONS, SUMMON_EXPERTS_CONCURRENCY, SUMMON_EXPERTS_MAX, SUMMON_TASK_MAX_CHARS, SummonExpertItemResult, SummonExpertSpec, ZH_NAME, apply, createAgencyPersonaSource, inject, liveSchemaField, loadCatalog, mapPool, name, parseFrontmatter, readExpertPrompt, readLocalizedExpertPrompt, resolveCatalogRoot, resolveExpert, sanitize, stripBom, toSummonItemResult, truncate, unquote, validateSummonSpecs };

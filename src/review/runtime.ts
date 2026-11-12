@@ -131,25 +131,31 @@ export async function runReview(ctx: Context, parent: Agent, target: Target, sig
         if (deny.length) agent.ctx.tools.restrict({ deny });
         return undefined;
       });
+      // 宿主 0.2.2-rc.2 起把 activation spec 扁平化：parent / cwd / prompt / agentOptions
+      // 直接放顶层（0.2.2-rc.1 及更早仍在 `request` 里）。两种形状同时下发，两代宿主各自
+      // 忽略对方的键；只发 request 的话新宿主上 spec.parent 是 undefined，startActivation
+      // 会抛 "Cannot read properties of undefined (reading 'id')"。
+      const activationRequest = {
+        parent,
+        // 关键：把**要审的那棵树**作为子 Agent 的初始目录传下去。
+        // 不传就继承父会话目录——而父会话常常不是 git 仓库（例如一个装着多个
+        // 仓库的工作区根），于是审查子 Agent 在错误的目录里跑 git diff，
+        // 表现为「审的是主区域 / 什么都审不到」。提示词里不放目录是有意的：
+        // 短任务文本与 codex-rs 逐字对齐，靠 cwd 而不是靠自然语言指令定位仓库。
+        cwd,
+        prompt: [{ type: 'text' as const, text: prompt }],
+        ...(reviewModel ? { agentOptions: { model: reviewModel } } : {}),
+      };
+      const legacySpec = {
+        provider: 'spawn',
+        label: t('代码审查'),
+        childId,
+        request: activationRequest,
+        signal: combined,
+        delivery: 'caller' as const,
+      };
       try {
-        activation = await subagents.startActivation({
-          provider: 'spawn',
-          label: t('代码审查'),
-          childId,
-          request: {
-            parent,
-            // 关键：把**要审的那棵树**作为子 Agent 的初始目录传下去。
-            // 不传就继承父会话目录——而父会话常常不是 git 仓库（例如一个装着多个
-            // 仓库的工作区根），于是审查子 Agent 在错误的目录里跑 git diff，
-            // 表现为「审的是主区域 / 什么都审不到」。提示词里不放目录是有意的：
-            // 短任务文本与 codex-rs 逐字对齐，靠 cwd 而不是靠自然语言指令定位仓库。
-            cwd,
-            prompt: [{ type: 'text', text: prompt }],
-            ...(reviewModel ? { agentOptions: { model: reviewModel } } : {}),
-          },
-          signal: combined,
-          delivery: 'caller',
-        });
+        activation = await subagents.startActivation({ ...legacySpec, ...activationRequest });
       } finally {
         stop();
       }

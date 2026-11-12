@@ -427,7 +427,7 @@ describe('专家团宿主与远端集成', () => {
     try {
       const settings = new TestSettings(new Context())
       settings.register('locale', (value) => value)
-      settings.restore({ 'agency-agents': { enabled: ['engineering-code-reviewer'] }, locale: { preference: 'zh' } })
+      settings.restore({ 'agency-agents': { enabled: ['engineering-code-reviewer', 'engineering-software-architect'] }, locale: { preference: 'zh' } })
       const services = new Map<string, unknown>()
       const tools = new Map<string, { execute(args: unknown, exec?: unknown): Promise<unknown> }>()
       let preExecuteHook: ((exec: any, next: () => any) => Promise<any>) | undefined
@@ -475,7 +475,7 @@ describe('专家团宿主与远端集成', () => {
       expect(nextFn).toHaveBeenCalledTimes(1)
 
       // 启动一个专家子代理
-      await tools.get('summon_expert')!.execute({ expert: '代码审查工程师', task: 'check' }, { agent: {} })
+      await tools.get('summon_expert')!.execute({ expert: '软件架构师', task: 'check' }, { agent: {} })
       expect(spawnedChildId).toBeDefined()
 
       // 该受管专家子代理在执行层尝试调用 summon_expert，pre-execute 拦截
@@ -487,7 +487,7 @@ describe('专家团宿主与远端集成', () => {
 
       // 验证即使超过 256 次调用淘汰最老条目的人设配置，基于 managedSubagentIds 的门禁依然坚不可摧
       for (let i = 0; i < 260; i++) {
-        await tools.get('summon_expert')!.execute({ expert: '代码审查工程师', task: `check-${i}` }, { agent: {} })
+        await tools.get('summon_expert')!.execute({ expert: '软件架构师', task: `check-${i}` }, { agent: {} })
       }
       const overflowBlockedNext = vi.fn()
       const overflowResult = await preExecuteHook!(childExec, overflowBlockedNext)
@@ -636,7 +636,7 @@ describe('专家团宿主与远端集成', () => {
       clearSubagentRegistryForTest()
       const settings = new TestSettings(new Context())
       settings.register('locale', (value) => value)
-      settings.restore({ 'agency-agents': { enabled: ['engineering-code-reviewer'] }, locale: { preference: 'zh' } })
+      settings.restore({ 'agency-agents': { enabled: ['engineering-code-reviewer', 'engineering-software-architect'] }, locale: { preference: 'zh' } })
       const services = new Map<string, unknown>()
       const tools = new Map<string, { execute(args: unknown, exec?: unknown): Promise<unknown> }>()
       const ctx = {
@@ -657,7 +657,7 @@ describe('专家团宿主与远端集成', () => {
 
       apply(ctx, { root: '', provider: 'spawn', divisions: DEFAULT_DIVISIONS, ...volatileConfig(settings) } as never)
       await expect(
-        tools.get('summon_expert')!.execute({ expert: '代码审查工程师', task: 'check' }, { agent: {} }),
+        tools.get('summon_expert')!.execute({ expert: '软件架构师', task: 'check' }, { agent: {} }),
       ).rejects.toThrow('spawn failed')
 
       flushSubagentRegistrySync(ctx)

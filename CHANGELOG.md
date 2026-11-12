@@ -1,327 +1,533 @@
 # Changelog
 
-## 1.0.10 — 2026-11-10
+## [0.1.0] - 2026-11-12
 
-## 简体中文
+**Expert plugin body + code-review engine** (self-maintained fork, based on the Apache-2.0
+MichengAI/dsh-agency-agents and MichengAI/dsh-code-review).
 
-- 彻底对齐 OpenAI Codex 设计哲学，将审查作为用户发起的独立质量门禁，移除向主 Agent 注入的全局审查工具，杜绝模型在日常写代码与修 bug 期间自动自发触发审查。
-- 优化 `/review` 斜杠命令交互体验，命令提交后立即释放输入框，审查期间保持输入框可正常打字，支持随时通过 `/review-cancel` 取消审查或通过 `/review-status` 查看进展。
-- 审查完成后自动在当前会话中呈现对应宿主语言的完整 Markdown 审查报告。
+- The Agency expert framework is kept as the main body: 331 experts, built-in teams, settings panel and summon tools.
+- **The code-review expert now runs on the code-review implementation** instead of a generic persona
+  subagent: codex-rs-aligned review prompt, `git diff` target resolution and structured report parsing.
+- **Fix: summon always failed on host 0.2.2-rc.2+** — that release flattened the activation spec
+  (`parent` / `prompt` / `maxDepth` moved out of `request`), so `spec.parent` was undefined and
+  `startActivation` threw `Cannot read properties of undefined (reading 'id')`. Both shapes are now
+  sent, and each host generation ignores the other's keys.
 
-## English
+# Changelog
 
-- Align with OpenAI Codex design philosophy by treating review as a user-initiated quality gate; remove the global review tool from the main agent to prevent autonomous model triggers during normal coding and bug-fixing.
-- Improve `/review` slash command interactivity: the command releases the composer immediately upon submission, allowing users to type freely, cancel via `/review-cancel`, or check status via `/review-status`.
-- Automatically deliver complete Markdown review reports matching the host language into the active conversation upon completion.
+## [1.2.27] - 2026-11-09
 
-## 1.0.9 — 2026-11-09
+- **Full Support for All 8 Official DeepSeek Harness Languages**:
+  - Seamlessly integrated with the official localization architecture, providing full native translations for Chinese, English, Japanese, Spanish, French, German, Russian, and Portuguese (`zh`, `en`, `ja`, `es`, `fr`, `de`, `ru`, `pt`). All interface controls, settings panels, custom editor forms, batch action dialogs, and team management views adapt immediately when switching languages;
+  - Comprehensive documentation provided across all 8 languages with click-to-switch navigation bars.
+- **Interface & Mobile Presentation Refinements**:
+  - **Mobile and drawer sidebar icon presentation**: Resolved an issue where sidebar navigation icons could render incorrectly when opening the sidebar drawer on mobile viewports, ensuring reliable visual presentation across all device sizes;
+  - **Streamlined settings workbench**: Refined the settings interface by removing obsolete update toggles and entry buttons for a cleaner, focused experience.
 
-## 简体中文
+## [1.2.26] - 2026-11-04
 
-- 全面支持 DSH 官方全部 8 门语言（`zh`, `en`, `ja`, `es`, `fr`, `de`, `ru`, `pt`），词条字典与斜杠命令菜单动态本地化覆盖。
-- 审查子 Agent 根据宿主语言偏好输出对应语言的 GitHub Flavored Markdown 审查报告。
-- 补充插件清单元数据，规范 author、keywords、`exports./icon` 导出与 `dsh.manifestVersion: 1`。
-- 提供全套 8 门语言独立本地化 README 文档与顶部互通导航，各语言元数据 `meta.detail` 准确指向对应文档。
-- 代码审查工具描述、参数说明及关键运行错误提示全面支持宿主语言本地化。
-- 非官方语言环境下界面文案与报告回退使用英文，与宿主表现保持一致。
-
-## English
-
-- Full support for all 8 official DSH host languages (`zh`, `en`, `ja`, `es`, `fr`, `de`, `ru`, `pt`), with faithful localization for dictionaries and client slash command menus.
-- Instruct review subagents to output GitHub Flavored Markdown reports matching the host language preference.
-- Enrich plugin manifest metadata: declare author, keywords, `exports./icon`, and `dsh.manifestVersion: 1`.
-- Provide dedicated native README documentation with unified top-level navigation across all 8 languages, with `meta.detail` pointing to each localized file.
-- Localize review tool/parameter descriptions and key runtime error messages to match the host language.
-- Fallback to English for interface copy and review reports when running under unsupported non-official languages, matching the host behavior.
-
-## 1.0.8 — 2026-11-04
-
-## 简体中文
-
-- 对齐官方最新发布宿主 `0.2.2-rc.1`，更新开发依赖至 `0.2.2-rc.1`。
-- 优化宿主兼容支持矩阵，移除过时的阿尔法版本，支持全部 `0.2.x` RC 宿主环境（`0.2.0-rc.1`～`0.2.2-rc.1`）。
-- 更新文档支持矩阵与徽章说明。
-
-## English
+### Compatibility & Dependencies
 
 - Align with official DSH `0.2.2-rc.1` release; upgrade development dependencies to `0.2.2-rc.1`.
 - Clean up obsolete alpha versions from the host compatibility matrix; support all `0.2.x` RC hosts (`0.2.0-rc.1` through `0.2.2-rc.1`).
 - Update documentation badges and verified build ranges.
 
-## 1.0.7 — 2026-11-03
 
-## 简体中文
+[简体中文](CHANGELOG.zh-CN.md)
 
-- 扩展宿主兼容支持：全面验证 DSH 最新预发布版本 `0.2.2-alpha.3` 与全系 RC（覆盖至 `0.2.1-rc.5`），确保代码审查子代理与命令流程平稳运行。
+This file records features and upgrade boundaries. npm and GitHub Releases remain the publication source of truth.
 
-## English
+## 1.2.25 - 2026-11-04
 
-- Extend host compatibility support: verified compatibility across DSH latest prerelease `0.2.2-alpha.3` and all RCs up to `0.2.1-rc.5`, ensuring seamless review subagent execution.
+- **Fix settings navigation icon and expert settings panel presentation across host versions**:
+  - **Settings navigation icon presentation**: Eliminates an issue where the specialized expert icon in the settings navigation sidebar could fall back to a generic gear icon on certain client host versions, ensuring the dedicated icon displays consistently and accurately across all environments;
+  - **Cross-host settings panel reliability**: Enhances entry registration across host versions so the expert settings section and navigation entries load and unmount smoothly without missing panels or visual regressions.
 
-## 1.0.5 — 2026-10-29
+## 1.2.23 - 2026-11-03
 
-## 简体中文
+- **Improve expert discovery menu overlay presentation and viewport positioning in composer toolbar**:
+  - **Docked scrolling and container clipping prevention**: Enhanced the overlay layering and anchoring of the expert menu spawned from the composer toolbar. During active conversation scrolling and docked composer states, the menu floats cleanly above surrounding containers without getting clipped or obscured;
+  - **Adaptive viewport height & boundary clamping**: Dynamically measures available viewport space relative to the trigger button, automatically calculating optimal max-height and scrolling bounds to prevent overflow on compact or short screens;
+  - **Accessible focus management and accurate restoration**: Ensures the search box receives immediate input focus upon opening; pressing `Escape` cleanly closes the menu and accurately returns focus to the trigger button, while clicking outside dismisses without stealing target focus.
 
-- 修复取消与中断场景下暴露 `[object Object]` 或未翻译英文的问题，支持结构化取消原因与 `/review-cancel` 的完整本地化。
-- 修复大语言模型在审查中断或失败时自主决策重试、导致同轮无弹窗卡死的问题，改为直接向用户展示最终结论。
+## 1.2.22 - 2026-11-03
 
-## English
+- **Fix expert subagent and native team lifecycle reliability and delegation boundaries** (Issue #35):
+  - **Subagent cold resume and restart state recovery**: Resolves an issue where expert subagents lost their specialized persona and tool restrictions after long conversation resumes or desktop application restarts. Restored subagents now retain their designated roles and tool restrictions seamlessly;
+  - **Native expert team creation reliability**: Resolves a blocker in Agent Team environments where summoning an expert team failed during member initialization due to a tool permission validation error;
+  - **Anti-recursion delegation enforcement**: Hardens collaboration boundaries so expert members and subagents cannot recursively spawn additional experts or expand teams. Workload gaps are cleanly redirected back to the lead coordinator to prevent uncontrolled cascade runs and resource bloat.
 
-- Fix `[object Object]` and untranslated English details during review cancellation/interruption, with full localization support for structured cancel reasons and `/review-cancel`.
-- Prevent models from autonomously retrying `dsh_code_review` upon interruption or failure, which caused silent deadlocks in turns without prompt windows, presenting the final outcome directly to the user.
+## 1.2.21 - 2026-11-01
 
-## 1.0.4 — 2026-10-27
+- **Improve settings responsive layout and eliminate overflow in mobile / narrow sidebars**:
+  - **Segmented tab overflow protection**: Enforced `nowrap` and ellipsis constraints on tab buttons, hiding redundant enabled labels on narrow screens to prevent Chinese characters from breaking across lines and overflowing borders;
+  - **Single-row compact filter alignment**: Eliminated multi-line stacking of filter dropdowns on narrow viewports by introducing a balanced single-row grid (`repeat(3, minmax(0, 1fr))` for experts, `repeat(2, minmax(0, 1fr))` for teams) with refined padding to prevent truncation;
+  - **Above-the-fold density reclamation**: Reduced vertical header consumption by over 50%, enabling 2.5 full cards visible above the fold on 375px viewports.
 
-## 简体中文
+## 1.2.20 - 2026-10-30
 
-- 升级插件图标：采用透明矢量 SVG 图标（`assets/icon.svg`），增强在不同宿主主题与高分辨率屏幕下的显示清晰度。
+- **Fix unthrottled client draft polling and eliminate origin connection exhaustion** (Issue #34):
+  - **Zero-Polling ASK Confirmation Architecture**: Replaced the continuous 1s `setInterval` polling on `getLatestProposal` with precise host ASK confirmation card tracking. The plugin now operates with zero background HTTP requests during normal usage;
+  - **Accurate Action Triggering**: Synchronized selection tracking with explicit primary submit button clicks and Enter key submissions within confirmed question cards (`isAskConfirmSubmitAction`), filtering out auxiliary controls (description toggles, cancel, skip, minimize);
+  - **Guaranteed Timeout Abort**: Wrapped RPC requests with `withTimeout` (`Promise.race`) hard timeout (5s) to guarantee lock release and eliminate `activeFetchInFlight` permanent deadlocks;
+  - **Descriptor Compatibility**: Declared `acceptsUndefined: true` on `sessionId` in Remote descriptors, resolving gateway strict argument validation errors when active sessions are absent.
 
-## English
+## 1.2.19 - 2026-10-29
 
-- Upgrade plugin icon: Adopt transparent vector SVG icon (`assets/icon.svg`) to enhance display clarity across various host themes and high-DPI screens.
+- **Synchronize roster updates across expert and team settings panels** (Issue #33):
+  - **Live catalog cache subscription**: Subscribed `TeamsPanel` and `TeamMenu` to catalog events, immediately updating expert member candidates and enabled states when custom experts are added, edited, or removed in the same settings session without requiring a panel reload;
+  - **Global draft creation sync**: Propagated new catalog snapshots from in-chat AI draft confirmation dialogs to the shared client catalog state;
+  - **Unified dropdown chevron transitions**: Standardized chevron icons and 180° rotation animations between bottom toolbar triggers and composer recommendation chips.
 
-## 1.0.3 — 2026-10-24
+## 1.2.18 - 2026-10-27
 
-## 简体中文
+- **Align composer trigger typography and hover state with host toolbar primitives**:
+  - **Typography & Metrics Alignment**: Matched the composer bottom toolbar "Experts" trigger button metrics with host native controls (13px font size, 20px line height, 500 font weight, and 8px compact horizontal padding), eliminating font size and visual weight discrepancies;
+  - **Hover State Harmonization**: Kept the secondary label color tone (`var(--dsw-alias-label-secondary)`) upon hover, surfacing the native `var(--dsw-alias-interactive-bg-hover)` capsule backdrop without abruptly flashing to bold black text (`label-primary`).
 
-- 宿主准入机制全面升级：声明 `engines.dsh: ">=0.2.0-rc.1 <0.3.0-0"`，全面开放对 DeepSeek Harness 整个 `0.2.x` 系列的支持（包含已支持的 `0.2.0-rc.1` 起及后续全部 alpha/rc/正式版），非破坏性宿主升级无需再重复发版。
-- 解除 peerDependencies 逐版本锁定：所有 `@deepseek-ai/dsh-*` peer 依赖统一放宽至 `0.2.x` 代际范围。
-- 升级编译期开发依赖：将全部 `@deepseek-ai/dsh-*` 开发依赖对齐升级至最新 `0.2.1-rc.3`。
+## 1.2.17 - 2026-10-27
 
-## English
+- **Align expert recommendation UX with host Menu primitive and zero-occlusion upward expansion** (Issue #27 follow-up):
+  - **Unified Upward Expansion (Zero Occlusion)**: Standardized both hero workspace row and dock top layouts to `side="top"`, ensuring menu surfaces strictly expand upwards from the trigger anchor, completely eliminating occlusion over the composer input and send button;
+  - **Host Primitive Alignment & Style Cleanups**: Removed invasive `!important` absolute positioning overrides in favor of native `.sideTop` and `.alignEnd` rules in `@deepseek-ai/dsh-client-ui-primitives` `Menu`; replaced raw button anchor with native `Button variant="ghost" size="sm"` primitive;
+  - **Two-Line Menu Layout**: Display candidates with primary name, team badge tag, and contextual match reason in a structured two-line list that smoothly closes on outside clicks;
+  - **Double Scrollbar Prevention**: Omitted outer container `overflow-y: auto` to rely entirely on the host Menu primitive's internal `.scrollable .viewport` container;
+  - **Real Unit Test Guarding**: Extracted `buildRecommendMenuItems` pure function with full Vitest coverage and mutation validation for localized item structures and team tags.
+
+## 1.2.16 - 2026-10-26
+
+- **Composer Task Recommendations**: Real-time expert and team recommendations above the chat input based on user draft semantics (Issue #27):
+  - **Zero-Token Local Scoring Engine**: Client-side stop-word extraction and lightweight scoring (< 3ms) with 250ms debounce, incurring zero LLM token costs and network overhead;
+  - **Native Styling and Centered Alignment**: Built with host primitives (`@deepseek-ai/dsh-client-ui-primitives` `Pill` / `Tooltip`) and aligned to composer CSS variables (`--dsh-composer-side-clearance`, `--dsh-composer-card-max-width`);
+  - **One-Click Mention and Deduplication**: Click recommendation chips to insert references directly into the input; already mentioned experts are automatically excluded; includes an "Ignore" action to dismiss current suggestions;
+  - **Configurable Toggle Switch (Default Off)**: Added dedicated toggle under plugin settings conforming to host volatile configuration rules for live hot-reload and persistence.
+- **Enhanced Test Guarding & Mutation Hardening**: Extracted `resolveRecommendInputs` and introduced regression tests ensuring `ref` priority over `source` and safe fallback handling.
+
+## 1.2.15 - 2026-10-26
+
+- **Conversational creation for experts and expert teams**: Introduce dual \"Create with AI\" entry points next to creation actions in Experts and Expert Teams views (Issue #16):
+  - Automatically jump to main chat with conversational prompt prefix and cursor auto-focused at the end;
+  - Specialized tools (`propose_custom_expert` / `propose_expert_team`) render polished Markdown previews in chat with division categories, collapsed prompt blocks, and localized roster members with emojis;
+  - Support multi-turn revisions in chat while strictly suppressing premature modal popups during ideation;
+  - Trigger native host **Ask interaction card** for two-step confirmation upon explicit user confirmation;
+  - Dynamically mount native drawer/modal editor with all proposed fields pre-filled for final human-in-the-loop review and persistence.
+- **Fuzzy expert slug resolver for team assembly**: Introduce flexible multi-strategy alias resolution for team members, allowing LLMs to specify Chinese names, English display names, or short slugs, automatically resolving to valid in-repo expert slugs.
+- **Session-bound proposal lifecycle**: Bind proposal storage and client auto-sensing to `sessionId`, ensuring multi-window and multi-session concurrency without cross-window popup collisions.
+- **Enforce full width on single-line inputs**: Apply full container width styling across custom expert and team editor inputs, eliminating narrow 170px collapse and blank space.
+- **Robust error handling for draft dialog**: Unwrap Remote RPC responses to properly trap revision conflicts and prevent silent fake success or white screen errors.
+
+## 1.2.14 - 2026-10-26
+
+- **Native bulk action dropdown menu in Experts settings**: Introduce a compact native "Batch actions" dropdown menu in the filter bar (Issue #16), dynamically linked with source, category, status, and search filters:
+  - Support precise "Enable filtered (N) / Disable filtered (M)" for matching results, seamlessly transitioning to "Enable all (N) / Disable all" when unfiltered;
+  - Provide confirmation dialogs displaying affected expert counts and reversible operation notes;
+  - Adopt atomic execution scheduling and dynamic roster resolution (`performBulkCommit`) to completely eliminate silent overwrites caused by concurrent writes during confirmation dialog review.
+- **Restore vertical scrollbar in sidebar workspace panel**: Add full height and `overflow-y: auto` styling to `.aag-main-panel`, restoring the primary workspace vertical scrollbar and preventing card truncation at the bottom of the viewport.
+- **Optimize filter toolbar horizontal layout**: Compact wide action buttons into a native dropdown menu, reclaiming 140px+ of horizontal space and resolving search input compression collisions in compact settings dialogs.
+
+## 1.2.13 - 2026-10-24
 
 - Upgrade host admission policy: Declare `engines.dsh: ">=0.2.0-rc.1 <0.3.0-0"` to support the entire DeepSeek Harness `0.2.x` line (including `0.2.0-rc.1` onwards, future alphas, RCs, and stable releases) without requiring routine plugin version bumps.
 - Decouple peerDependencies locks: Broaden all `@deepseek-ai/dsh-*` peer dependencies to the `0.2.x` generation range.
 - Upgrade build-time development dependencies: Synchronize all `@deepseek-ai/dsh-*` devDependencies to latest `0.2.1-rc.3`.
 
-## 1.0.2 — 2026-10-24
+## 1.2.12 - 2026-10-24
 
-## 简体中文
+- Support DeepSeek Harness `0.2.1-rc.3` while retaining all existing supported versions.
 
-- 支持最新官方 DSH `0.2.1-rc.3`：将 peer 支持版本矩阵扩展至 `0.2.1-rc.3`。
+## 1.2.11 - 2026-10-23
 
-## English
+- **Add dedicated primary sidebar entry**: Support enabling a persistent sidebar entry via **Plugins → @jackchen13755/dsh-expert-agents** config card (disabled by default). Clicking the sidebar entry opens the full 331-expert roster and team collaboration editor in a spacious 960px centered workspace view, removing viewport scrolling constraints in narrow settings dialogs. Safely reverts to default views when disabled.
+- **Support independent online update toggle and platform locking**: Provide an "Online Updates" switch (enabled by default) to dynamically show or hide update checks and version badges. Supports enterprise environments locking updates via Cordis static configuration (`updater: false`).
+- **Support reverse proxy deployment with base URI resolution**: Automatically resolve API and update endpoints against `document.baseURI`, preventing 404 errors when hosted behind prefix-stripping reverse proxies (e.g. `/app/dsh/`).
+- **Harden endpoint security and volatile settings configuration**: Register runtime settings as volatile fields for seamless host mutations, enforce client token verification and content-type checks on settings routes, and handle oversized payloads without connection hanging.
 
-- Support latest official DSH `0.2.1-rc.3`: extend the peer matrix to include `0.2.1-rc.3`.
+## 1.2.10 - 2026-10-22
 
-## 1.0.1 — 2026-10-17
+- Fall back to English when host locale preference is unselected: align host locale resolution with `@deepseek-ai/dsh-client-locale` by resolving `zh` and `zh-*` to Chinese and all other values (including unselected `undefined` or retrieval exceptions) to English, preventing Chinese expert names, tool descriptions, and durable subagent descriptor labels in English browser environments (PR #30).
 
-## 简体中文
+## 1.2.9 - 2026-10-20
 
-- 支持最新官方 DSH `0.2.1-rc.2`：将 peer 支持版本矩阵扩展至 `0.2.1-rc.2`，开发依赖与官方 DSH `0.2.1-rc.2` 完全对齐。
+- Support pm2 and process wrapper environments for host module detection: extend host entry discovery to inspect `process.env.pm_exec_path`, `process.mainModule?.filename`, and `process.argv[1]`, fixing an issue where pm2 overwrites `process.argv[1]` with its container script, causing the host's `@deepseek-ai/schemastery` volatile config capability to be misdetected as unsupported and failing plugin activation at startup (Issue #26).
 
-## English
+## 1.2.8 - 2026-10-19
 
-- Support latest official DSH `0.2.1-rc.2`: extend the peer matrix to include `0.2.1-rc.2` and align development dependencies with official DSH `0.2.1-rc.2`.
+- Align the Experts settings tabs and filter dropdowns with the archive plugin: archive-shaped segmented-tab track and slider geometry, 32px select triggers with trailing chevrons, ellipsis labels, and dense 30px menu rows.
 
-## 1.0.0 — 2026-10-17
+## 1.2.7 - 2026-10-19
 
-## 简体中文
+- Keep the expert-team editor inside the host modal padding box: move its action bar into the host `Modal` footer slot, give the content a flex scroll chain, and drop the hard-coded viewport heights (Issue #25).
 
-- 版本号升级至 1.0.0，支持版本矩阵聚焦 DSH 0.2.0 及后续正式 RC 版本（`0.2.0-rc.1`、`0.2.0-rc.2`、`0.2.1-rc.1`）。
-- 移除已废弃的 0.1.x 和中间 alpha 版本声明，清理老版本兼容分支（包括早期动态导入和过时的语言偏好探测）。
-- 开发依赖对齐官方最新 DSH `0.2.1-rc.1`（含 Cordis `4.0.5` 与 Schemastery `3.18.5`）。
+## 1.2.6 - 2026-10-19
 
-## English
+- Render the Experts settings nav icon as an independent CSS mask so third-party skins cannot hide it, and only decorate buttons with a direct host `svg` so wrapped icons keep the host layout.
 
-- Bump version to 1.0.0 and focus the supported host matrix on DSH 0.2.0 and later release candidates (`0.2.0-rc.1`, `0.2.0-rc.2`, `0.2.1-rc.1`).
-- Drop legacy 0.1.x peers and intermediate alpha declarations; remove outdated compatibility fallbacks.
-- Align development dependencies with official DSH `0.2.1-rc.1` (including Cordis `4.0.5` and Schemastery `3.18.5`).
+## 1.2.5 - 2026-10-19
 
-## 0.1.16 — 2026-10-15
+- Let the settings panel fill the host content column: remove the 760px cap and the now-dead centering declarations, so expert and team grids line up with the rest of the settings page.
+- Keep the custom-expert footer outside the scrolling form: render it through the host `Modal` footer slot, cap the dialog with `max-height: 100%` instead of a viewport calc, and add a short-viewport regression test proving the action bar does not scroll away.
+- Keep the expert-team detail dialog inside the viewport: give its content a flex scroll chain so long member duties and coordinator prompts remain reachable, with a short-viewport regression test.
 
-## 简体中文
+## 1.2.3 - 2026-10-19
 
-- 在仍受支持的旧版 DSH 上，代码审查可以再次启动，不再因为宿主接口差异而失败。
+- Compact expert library tabs: align the top segmented tabs height to 32px with host select triggers and inputs, supply 14px vector stroke icons for Experts and Teams, and remove heavy shadows and excess container height.
 
-## English
+## 1.2.2 - 2026-10-18
 
-- Code review starts again on supported older DSH versions instead of failing on a host interface difference.
+- Fix search focus loss and double clear icons: adopt host primitive `Input` directly and remove hand-rolled clear buttons with conditional wrapper elements, eliminating DOM reconstruction focus drops on initial keystroke and conflicting native cancel buttons (Issue #20).
 
-## 0.1.15 — 2026-10-15
+## 1.2.1 - 2026-10-17
 
-## 简体中文
+- Align destructive action buttons with the host warning pattern: expert delete, discard-changes, team-template restore, and expert-team removal confirmations use a red outline instead of the solid primary style, matching the skills plugin.
 
-- 支持 DSH `0.2.1-alpha.3`：所有 `@deepseek-ai/dsh*` peer 列表追加该版本；开发依赖对齐宿主 `0.2.1-alpha.3`（含 Cordis `4.0.5-alpha.2`、Schemastery `3.18.5-alpha.2`）。
-- 适配子 Agent 破坏性变更：`ctx.subagents.start` / 启动期 `persona` / `toolFilter` 已移除，改为 `startActivation`（`delivery: 'caller'`）；审查角色与委派工具过滤在子 Agent `agent/created` 时以 scoped persona 与 `tools.restrict` 恢复。
-- 命令、工具名与阻塞式 `ask` 选择路径不变。
+## 1.2.0 - 2026-10-17
 
-## English
+**Breaking upgrade.** This version no longer supports DeepSeek Harness 0.1.x. Installing or enabling 1.2.0 on 0.1.2, 0.1.5, 0.1.7, or any other 0.1.x host is rejected by the version gate, and the plugin will not run. Upgrade the host to a version in the list below before installing this plugin.
 
-- Support DSH `0.2.1-alpha.3`: append that version to every `@deepseek-ai/dsh*` peer list and pin development dependencies to host `0.2.1-alpha.3` (including Cordis `4.0.5-alpha.2` and Schemastery `3.18.5-alpha.2`).
-- Adapt the subagent breaking change: `ctx.subagents.start` and start-time `persona` / `toolFilter` are gone; use `startActivation` with `delivery: 'caller'`, and restore the review persona plus delegated-tool denylist on the child's `agent/created` via a scoped persona section and `tools.restrict`.
-- Commands, tool names, and the blocking `ask` selection path are unchanged.
+Expert and expert-team settings stay in the host `agency-agents` namespace. This upgrade does not wipe them or require re-entry. Back up settings before downgrading to 1.0.x.
 
-## 0.1.14 — 2026-10-13
+Supported hosts only:
 
-## 简体中文
+- `0.2.0-rc.1`, `0.2.0-rc.2`
+- `0.2.1-rc.1`, `0.2.1-rc.2`
 
-- 审查工具更名为 `dsh_code_review`，用户命令 `/review`、`/review-status` 和 `/review-cancel` 保持不变。
+`0.1.x` and `0.2.1-alpha.1` through `0.2.1-alpha.5` are rejected by the version gate, and the plugin will not run. Upgrade the host to one of the four release candidates above first.
 
-## English
+Other changes:
 
-- Rename the review tool to `dsh_code_review`; `/review`, `/review-status`, and `/review-cancel` remain unchanged.
+- Remove Ant Design. Switches, dialogs, single-line inputs, and segmented tabs use host primitives. Member lists are a plain grid.
+- Remove the settings install bridge kept only for 0.1.x (`settingsNamespace()`, `installSettingsSection`, `installSection`). 0.2.x uses volatile config fields.
+- Drop dialog props the host does not accept (width, stacking, mask, and closable flags). Close buttons have a localized name, search fields can be cleared, and switches pass their name through the host `label`.
+- Side editor drawers are now centered modals. Confirmation dialogs keep the host default width. Expert-team editing, member picking, and details are 760px.
+- Icon-only buttons are 22px outline controls, matching the skills plugin.
+- Confirmation copy uses the host modal description slot. Confirm buttons use the host solid primary style instead of a red outline override.
+- Team template and custom prompt sources use the host segmented control instead of a hand-styled selected state.
+- Dialogs no longer restyle host input and textarea borders, padding, or focus rings.
+- Update and prompt preview dialogs use the host default width instead of a forced 680px.
+- Fix search input right-edge overflow in expert discovery popover by applying box-sizing: border-box.
+- Align composer discovery dialog surface with host modal card tokens and 8px switcher spacing.
+- Member replace is a 22px icon button, and its accessible name uses the expert name.
+- Declare `@deepseek-ai/dsh-client-ui-primitives` as a peer and include it in the browser module load order.
 
-## 0.1.13 — 2026-10-12
+## 1.0.20 - 2026-10-16
 
-## 简体中文
+- Adopt official host `@deepseek-ai/dsh-client-ui-primitives` `Menu` and `Button` primitives, completely eliminating custom select/dropdown logic and Ant Design Select dependencies.
+- Cards, dialogs, and controls use the host radius scale and semantic background tokens, so frosted-glass themes are no longer blocked by hardcoded solid fills.
+- Elevate dropdown visual fidelity with native frosted glass (`blur(16px)` / `blur(20px)`), prominent shadows, and fine hairline borders.
+- Streamline card action footer into compact 32px height with icon-only controls (View, Copy & Customize, Edit, Delete), eliminating visual clutter and redundant prompt copy actions.
+- Wrap card division categories in refined pill badges and eliminate vertical empty holes on single-line titles.
+- Unify confirmation modal button styling with lightweight hairline outline danger feedback and enhanced dialog copy.
+- Keep a visible keyboard focus ring on confirmation dialog buttons, and keep delete or discard buttons red on hover.
 
-- 支持 DSH `0.2.1-alpha.2`，放宽 Cordis 依赖为 ^4.0.1。
+## 1.0.19 - 2026-10-15
 
-## English
+- Support DSH `0.2.1-alpha.3` while retaining all existing supported versions; pin development `@deepseek-ai/dsh*` dependencies to host `0.2.1-alpha.3` and Cordis to `4.0.5-alpha.2`.
+- Drop removed host package `@deepseek-ai/dsh-invariants` from development dependencies (gone since alpha.1).
+- Adapt the subagent breaking change: start-time `persona` / `toolFilter` are gone on DSH 0.2.1-alpha.3+; use `startActivation` with `delivery: 'caller'`, and restore expert persona plus delegated-tool denylist on the child's `agent/created` via a scoped persona section and `tools.restrict`. Older hosts that still expose `ctx.subagents.start` keep the previous start-time fields.
+- Agent Team continues to use `sendMessage` direct delivery.
 
-- Support DSH `0.2.1-alpha.2` and allow Cordis ^4.0.1.
+## 1.0.18 - 2026-10-13
 
-## 0.1.12 — 2026-10-07
+- Native team member cards show each expert's localized name on both the current and previous host card layouts. Task titles and owner identifiers stay unchanged.
+- The lead card shows the expert team name when a task title exactly matches that team. If the match is missing or ambiguous, the card stays `lead`.
+- Stopping the parent session now stops subagents started by this plugin instead of waiting for them to finish.
+- The plugin supports the host's newer subagent start API and still works with the previous API.
 
-## 简体中文
+## 1.0.17 - 2026-10-12
 
-- 审查报告改为 Markdown，直接显示状态、发现和带行号的文件链接。
-- 审查可以使用宿主的网页和看图工具。权限不够时说明缺口并结束，不再弹出审批，也不要求提权。
+- Synchronized the latest experts from upstream `agency-agents` and `agency-agents-zh`, expanding the bundled roster to 331 specialists.
+- Added 9 upstream experts with complete Chinese translations: ATS Validator Architect, China Network Engineer, PDF Engine Architect, Platform Engineer, ServiceNow Developer & Mentor, Universal Document Compiler, Developer Community Builder, DX Engineer, and Focus Music Architect.
+- Added 1 Chinese edition specialist with complete English persona: Search Growth Orchestrator.
 
-## English
+## 1.0.16 - 2026-10-12
 
-- Review reports are Markdown, showing the status, findings, and file links with line numbers.
-- Reviews can use the host's web and image tools. If access is limited, the report explains the gap and finishes, without an approval prompt or a request to raise permissions.
+- Scrolling the expert list in Settings no longer jumps. Every card keeps the same height, including titles that fit on one line.
 
-## 0.1.11 — 2026-10-06
+## 1.0.15 - 2026-10-12
 
-## 简体中文
+- Support DSH `0.2.1-alpha.2` while retaining all existing supported versions.
 
-- 已安装插件列表显示「Code Review」和中文简介，不再只用包名。显示名来自 `locale/zh.json` 和 `locale/en.json` 的 `meta.title`、`meta.description`。
-- 从 GitHub 安装时已包含编译后的运行文件，不必再手动构建。
+## 1.0.14 - 2026-10-12
 
-## English
+- When you name an expert, the assistant calls that expert immediately instead of analyzing the task first.
+- Expert and team requests should be a short brief: the goal, constraints, and file paths. Do not paste source code into the request.
+- A single expert task can be up to 2,000 characters. A team task can be up to 20,000 characters. Longer text is rejected with a prompt to summarize and retry.
+- A running expert is labeled with the expert name.
 
-- The installed-plugin list shows “Code Review” and a localized description instead of the package name. Titles and descriptions come from `meta.title` and `meta.description` in `locale/zh.json` and `locale/en.json`.
+## 1.0.13 - 2026-10-10
+
+- When building a team, Add member starts with enabled experts so you can pick from the ones you already use.
+- Disabled experts can still join a team. If you do not want to use an expert on its own, switch status to All or Disabled.
+
+## 1.0.12 - 2026-10-10
+
+- After saving an expert team, you can keep editing an enabled custom expert. You no longer need to disable it first.
+- A save in the same window is no longer mistaken for a change from another window.
+
+## 1.0.11 - 2026-10-07
+
+- Official Desktop can update this plugin in place. It no longer targets the web profile by mistake.
+- A new version is marked with a warning color. Version numbers keep their normal color.
+- After updating, fully quit and reopen DSH Desktop.
+
+## 1.0.9 - 2026-10-06
+
+- The installed-plugin list shows “Agency Agents” and a localized description instead of the package name. The remote entry shows “Agency Agents remote”. Titles and descriptions come from `meta.title` and `meta.description` in `locale/zh.json`, `locale/en.json`, and `locale/remote/`.
 - Installing from GitHub now includes the compiled runtime, so no manual build is required.
 
-## 0.1.10 — 2026-09-30
+## 1.0.8 - 2026-10-05
 
-## 简体中文
+### Improvements
 
-- 斜杠菜单的标题、说明和输入提示跟随宿主语言，不再沿用注册表里的中文。
+- Opening and switching sessions stays smoother when the MCP connector is also enabled.
+- Expert team tools follow the current language and still update immediately when switching between Chinese and English.
 
-## English
+## 1.0.7 - 2026-09-30
 
-- Slash-menu titles, descriptions, and input hints follow the host language instead of the Chinese registry strings.
+### Improvements
 
-## 0.1.9 — 2026-09-30
+- Support DeepSeek Harness 0.2.0-rc.2, and keep the previously supported release candidates.
 
-## 简体中文
+## 1.0.6 - 2026-09-28
 
-- 将 DSH peer 的确切版本列表加入 `0.2.0-rc.2`。当前准入版本为 `0.1.2-rc.1`、`0.1.5-rc.1`、`0.1.5-rc.2`、`0.1.5-rc.3`、`0.1.7-rc.1`、`0.1.7-rc.2`、`0.2.0-rc.1`、`0.2.0-rc.2`。不写版本范围，也不包含 alpha、`0.0.1` RC，以及 `0.1.0` / `0.1.1` RC。
-- 开发依赖对齐当前宿主 `0.2.0-rc.2`。官方说明没有插件 API 破坏性变更；插件直接使用的类型除 `userQuestions` 新增可选的限时问答外没有变化，审查仍走原来的阻塞式 `ask`。
-- 离线回归 51 项和隔离 profile 端到端 33 项已在 `dsh 0.2.0-rc.2` 上通过。
+### Improvements
 
-## English
+- Support DeepSeek Harness 0.2.0-rc.1, and keep the previously supported release candidates.
 
-- Add `0.2.0-rc.2` to the exact DSH peer list. Admitted hosts are `0.1.2-rc.1`, `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.5-rc.3`, `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.1`, and `0.2.0-rc.2`. Ranges, alphas, `0.0.1` release candidates, and `0.1.0` / `0.1.1` release candidates are excluded.
-- Pin development dependencies to the current host, `0.2.0-rc.2`. The official notes do not describe a plugin API break. Direct types used by this plugin are unchanged aside from optional timed questions on `userQuestions`; reviews still use the existing blocking `ask`.
-- Offline regression (51) and isolated-profile end-to-end tests (33) passed on `dsh 0.2.0-rc.2`.
+## 1.0.5 - 2026-09-25
 
-## 0.1.8 — 2026-09-28
+### Improvements
 
-## 简体中文
+- Support DeepSeek Harness 0.1.7-rc.2, and keep the previously supported release candidates.
 
-- DSH peer 改为确切版本列表，覆盖 npm 上已发布的全部 `0.1` 与 `0.2` RC：`0.1.0-rc.2`、`0.1.0-rc.3`、`0.1.0-rc.6`、`0.1.0-rc.7`、`0.1.0-rc.8`、`0.1.1-rc.1`、`0.1.1-rc.2`、`0.1.2-rc.1`、`0.1.5-rc.1`、`0.1.5-rc.2`、`0.1.5-rc.3`、`0.1.7-rc.1`、`0.1.7-rc.2`、`0.2.0-rc.1`。不写版本范围，也不包含 alpha 或 `0.0.1` RC。
-- 开发依赖对齐当前宿主 `0.2.0-rc.1`。DSH peer 标为 optional，避免 npm 在多版本列表里解析到旧 RC。离线回归 51 项和隔离 profile 端到端 33 项已在 `dsh 0.2.0-rc.1` 上通过。
-- `0.1.7-rc.1` 与 `0.1.7-rc.2` 此前已做过隔离安装和宿主测试。其余列入的 RC 只保证能通过 peer 准入，尚未逐个验收。
+## 1.0.4 - 2026-09-25
 
-## English
+### Fixes
 
-- Declare DSH peers as every published `0.1` and `0.2` release candidate: `0.1.0-rc.2`, `0.1.0-rc.3`, `0.1.0-rc.6`, `0.1.0-rc.7`, `0.1.0-rc.8`, `0.1.1-rc.1`, `0.1.1-rc.2`, `0.1.2-rc.1`, `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.5-rc.3`, `0.1.7-rc.1`, `0.1.7-rc.2`, and `0.2.0-rc.1`. Ranges, alphas, and `0.0.1` release candidates are excluded.
-- Pin development dependencies to the current host, `0.2.0-rc.1`. Mark DSH peers optional so npm does not resolve an older release candidate from the multi-version list. Offline regression (51) and isolated-profile end-to-end tests (33) passed on `dsh 0.2.0-rc.1`.
-- `0.1.7-rc.1` and `0.1.7-rc.2` already had isolated installation and host tests. The other listed release candidates are admitted by peers and have not been validated individually.
+- Agency Agents now starts on DSH 0.1.7-rc.1 installed globally on Linux or in Docker, and still reads the current settings.
 
-## 0.1.7 — 2026-09-25
+## 1.0.3 - 2026-09-24
 
-## 简体中文
+### Improvements
 
-- 支持范围放宽为 DSH `0.1.7-rc.1` 起、`0.2.0` 之前的所有版本（含各 RC 与正式版），宿主再发新 RC 无需插件跟版；`0.2.0` 起需要重新验证。
-- 已在 `0.1.7-rc.1` 与 `0.1.7-rc.2` 两个宿主上分别完成隔离安装、peer 检查与打包后宿主测试。
+- Support DeepSeek Harness 0.1.7-rc.1, and keep the previously supported release candidates.
+- Alpha releases are no longer supported.
 
-## English
+### Fixes
 
-- Widen the supported range to DSH `0.1.7-rc.1` up to, but excluding, `0.2.0` — every RC and release on that line — so new host RCs no longer require a plugin release; `0.2.0` and later need revalidation.
-- Verified on both `0.1.7-rc.1` and `0.1.7-rc.2` with isolated installation, peer checks, and packaged host tests.
+- Settings still load correctly on DSH 0.1.7-rc.1.
 
-## 0.1.6 — 2026-09-25
+## 1.0.2 - 2026-09-23
 
-## 简体中文
+### Improvements
 
-- 将 peer 与开发依赖对齐官方 DSH `0.1.7-rc.2`，只支持该宿主；已在该宿主上完成离线回归与安装包端到端验证。
+- Support DSH 0.1.7 while keeping previously supported versions.
+- Expert and team pickers show avatars. Custom experts no longer ask for a summon emoji.
+- Team lists stay in sync between the chat menu and settings.
+- Expert and team counts sit on the tabs, including how many are enabled.
+- Settings look more consistent and follow the system light or dark appearance.
+- Team cards no longer offer “Copy prompt”. View the coordinator prompt in team details when needed.
 
-## English
+### Fixes
 
-- Align peer and development dependencies with official DSH `0.1.7-rc.2` and support that host only; offline regression and packaged host integration were verified on it.
+- Expert menus no longer show text from behind the panel.
+- Settings on newer DSH versions read the current configuration correctly.
 
-## 0.1.5 — 2026-09-24
+## 1.0.1 - 2026-09-21
 
-## 简体中文
+### Improvements
 
-- 只支持 DSH `0.1.7-rc.1`。
-- `/review` 的菜单说明改为「选择范围或输入自定义要求」。
-- 审查结果直接给出结论和发现，不再把 JSON 贴进会话。看不清改动时，不会把补丁说成正确。
+- Significantly reduced plugin size to improve loading of expert and team pages.
+- Improved Chinese and English messages and consistency when switching languages.
+- Updated feature screenshots and usage guidance.
 
-## English
+### Fixes
 
-- Support only DSH `0.1.7-rc.1`.
-- The `/review` menu description is now “Select a scope or enter custom instructions”.
-- Reviews state the verdict and findings directly, without pasting JSON into the conversation. A review that cannot inspect the diff will not call the patch correct.
+- Fixed separators disappearing when entering multiple tags.
+- Fixed some experts unexpectedly losing their enabled state when enabling a team.
+- Made validation messages clearer so fields needing attention are easier to find.
+- Fixed issues with collaboration status display and compatibility with older DSH versions.
 
-## 0.1.4 — 2026-09-18
+## 1.0.0 - 2026-09-21
 
-## 简体中文
+The first 1.0 release expands individual specialists into configurable expert-team collaboration. It retains the package name, 321 bundled specialists, 22 divisions, and existing individual-expert workflows. The following covers the changes since 0.1.44.
 
-- `/` 菜单为 `/review`、`/review-status`、`/review-cancel` 补上图标和中文标题，描述继续跟随宿主语言。
-- 将 npm 包描述改为与 GitHub 仓库一致的中英双语。
+### Retained individual-expert capabilities and tools
 
-## English
+- Retain 321 bundled experts across 22 divisions, prompt viewing/copying, category/status/localized keyword filters, enablement, and selection through the composer or @.
+- Retain up to 200 custom experts with creation, copying, avatars and summon emoji, editing, save-and-enable, disabling, and permanent deletion; preserve name-conflict and concurrent-revision checks.
+- Keep list_experts, summon_expert, and summon_experts; add list_expert_teams, get_expert_team, and summon_expert_team for reading team rules before delegation and final synthesis.
+- Preserve the settings version display, update checking/feedback, and trusted external root, provider, divisions, and maxDepth configuration. Do not add an External source tab.
+### Five built-in teams and custom teams
 
-- Add slash-menu icons and localized titles for `/review`, `/review-status`, and `/review-cancel`; descriptions still follow the host locale.
-- Make the npm package description bilingual to match the GitHub About text.
+- Add Product Review Team, Technical Review Team, Content Planning Team, Data Analysis Team, and Research Team. Each includes three independent expert roles, a shared goal, delivery requirements, task examples, and a dedicated coordinator template.
+- Create custom teams, copy built-in teams, inspect details, edit, enable, disable, and delete. Each team contains 2–8 distinct experts; up to 100 custom teams are supported.
+- Configure a name, description, up to three tags, member duties and instructions, shared goal, constraints, delivery requirements, and 1–3 examples. Custom coordinator prompts allow up to 12,000 characters.
+- Use the team coordinator template, customize it, or restore it. Rules cover preparation, delegation, evidence checks, disagreements, failures, and final delivery. The existing main conversation coordinates; no extra leader subagent is created.
+- Confirm and enable required experts when enabling a team. Disabling or deleting a team does not disable its members or delete historical conversations.
 
-## 0.1.3 — 2026-09-18
+### Unified expert and team management
 
-## 简体中文
+- Add an underlined Expert teams tab inside Settings → Experts, sharing the title, version, and links. Preserve individual experts' All/Built-in/Custom source filters, categories, status, and search.
+- Preserve expert filters across tab switches. Place counts at the right of the tabs, with source filters and create/refresh actions on one row. Teams gain equivalent source/status filters, search, empty states, refresh, and more menus.
+- Share cards, editor drawers, save footers, prompt previews, and confirmation dialogs. Confirm deletion and discarding unsaved changes. Retain drafts on revision conflicts, review current settings before saving, and allow deleted experts to continue as new experts.
+- Remove redundant source badges and expand all five team descriptions. Team descriptions grow with their content to avoid truncating English, while card actions remain compact.
+- Align buttons, inputs, dropdowns, and focus states with Archive Manager using compact sizing and official theme backgrounds/borders. Enabled switches are green, disabled switches gray, with text labels; support dark/light themes and narrow layouts.
 
-- 将 peer 与开发依赖对齐官方 DSH `0.1.6-alpha.2`，并适配 `SubagentRuntime` 构造函数；已在该宿主上完成离线回归与安装包端到端验证。
+### Chat selection, examples, and draft protection
 
-## English
+- Switch to teams in the Experts composer picker, search, inspect details, enable, and select. The @ picker supports native team references with short localized names.
+- Selecting a team or example updates the draft without sending it. Protect existing text, attachments, and references; confirm team replacement or example insertion in a themed dialog.
+- Recheck the draft revision after asynchronous confirmation. If the draft changed meanwhile, stop insertion and ask the user to select again rather than overwriting new input.
+- Preserve full-roster individual-expert search, enable-and-select, bilingual examples for eight representative specialists, conflict feedback, and retry behavior.
 
-- Align peer and development dependencies with official DSH `0.1.6-alpha.2`, update the `SubagentRuntime` constructor, and verify offline regression plus packaged host integration on that host.
+### Ordinary subagents and native Agent Team
 
-## 0.1.2 — 2026-09-16
+- Check host capability separately from service enablement and tool availability in the current Agent scope, without modifying host settings.
+- Use ordinary subagents when unsupported. Recommend enabling Team when supported but disabled, while allowing ordinary execution. Use native Agent Team when services and tools are ready. Explicit maxDepth continues through ordinary mode to enforce depth limits.
+- Ordinary mode performs one parallel analysis with up to four concurrent experts. Freeze team, member, and task settings before execution so later edits cannot change the running assignment.
+- Native mode integrates members, shared tasks, task claiming, result messages, and asynchronous waiting. Reuse idle or offline members for the same team/expert; do not redispatch busy or failed members.
+- Accepted native dispatch means started, not completed. The main conversation waits for actual results for the current tasks before verifying and summarizing. Mid-dispatch failures do not automatically switch to ordinary mode and duplicate work.
+- Localize new child-session expert names in both modes. Adapt native roster display names while retaining stable identities, message routing, and reuse. Do not rewrite old ordinary-session titles or host model labels.
 
-## 简体中文
+### Collaboration quality and failure handling
 
-- 将 peer 与开发依赖对齐官方 DSH `0.1.6-alpha.1`，并在该宿主上完成离线回归与安装包端到端验证。
+- Provide team-specific briefs, role boundaries, structured member reports, coordinator checklists, and handoff rules. Consolidate duplicate findings while preserving evidence, disagreements, and open questions.
+- Ordinary mode reports responsibility coverage and member success/failure, preserving completed results when others fail. Isolate persona-read failures, reject empty results, and do not automatically add model rounds or retries.
+- Cancellation prevents queued work from starting, settles in-flight launches, and interrupts native members started by this invocation. Report cleanup failures explicitly.
+- Preserve child-tool isolation and recursion guards; experts cannot summon more experts or start another team round.
 
-## English
+### Complete localization, documentation, and release assets
 
-- Align peer and development dependencies with official DSH `0.1.6-alpha.1`, and verify offline regression plus packaged host integration on that host.
+- Complete Chinese/English UI, details, editors, confirmations, errors, tool descriptions, and runtime feedback, plus all five teams' names, descriptions, tags, duties, examples, and coordinator rules.
+- Language changes preserve custom content and unsaved drafts. Only system presets are localized; both built-in Chinese and English names participate in collision checks, and stable IDs remain unchanged.
+- Regenerate separate Chinese and English 3:1 WebP banners without version numbers. Replace the Node README badge with supported DSH versions, and refresh bilingual feature and upgrade documentation.
+- Set the version baseline to 1.0.0. Generate bilingual release notes from the matching changelog entries to keep feature lists aligned.
 
-## 0.1.1 — 2026-09-15
+- Stop tracking compiled `lib` in Git. The release gate builds and transfers verified artifacts to npm publishing; npm packages retain the runtime `lib` files.
 
-## 简体中文
+### Upgrade, compatibility, and validation limits
 
-- 增加 GitHub Actions：推送正式版本标签后，通过 npm Trusted Publishing 发布，并同步中英 GitHub Release 说明。
+- Retain support for DSH 0.1.0-rc.8, 0.1.1-rc.2, 0.1.2-rc.1, 0.1.5-rc.1, 0.1.5-rc.2, 0.1.6-alpha.1, and 0.1.6-alpha.2. This does not claim coverage of every intervening or future version. Native Team also depends on installation and enablement.
+- Existing expert enablement and custom experts remain in the host agency-agents settings namespace; team settings use that namespace too. No expert-file migration is required. Back up settings before downgrading: old versions lack teams and may not preserve team fields on writes.
+- The engineering regression baseline passes 199 unit/host-integration tests and 40 browser tests, including opt-in visual validation. Fix the old visual fixture that passed despite missing theme variables. Type checks, builds, and package validation pass.
+- Browser tests use real components with mocked Remote services, and model providers are test doubles. These results do not validate real-model summary quality or every supported host end to end. Native model labels remain host-owned and may show creation-time models.
 
-## English
+## 0.1.44 - 2026-09-18
 
-- Add GitHub Actions so a version tag publishes via npm Trusted Publishing and syncs bilingual GitHub Release notes.
+- Add compatibility with DSH `0.1.6-alpha.2` while retaining support for previously supported versions.
+- Keep Remote mounting on both alpha.1 and alpha.2 hosts, and resolve the current chat session after `sessions.list.current` was removed.
+- Stop flashing the loading state under the expert search box when the roster is already cached.
 
-## 0.1.0 — 2026-09-13
+## 0.1.43 - 2026-09-16
 
-## 简体中文
+- Add compatibility with DSH `0.1.6-alpha.1` while retaining support for previously supported RC versions.
 
-- 在主会话使用 `/review` 发起原生独立 Agent 审查，支持基准分支、未提交更改、指定提交及自定义要求；报告返回当前会话，可查看最近结果或取消运行。
-- 保留固定版本的 Codex 英文审查规范，报告语言跟随宿主中英文偏好，并提供双语使用说明。
-- 支持 DSH `0.1.5-rc.2`，需要 Node.js ≥ `22.19.0`、Git、原生 spawn 与问题回答器。未保存语言偏好时默认中文；审查范围覆盖、发现准确性和输出语言仍取决于模型表现。
+## 0.1.42 - 2026-09-13
 
-## English
+- Choose experts from a compact category and emoji list, retaining the original category and localized-name order, with English prefix search to find and enable disabled experts. The `@` shortcut continues to show enabled experts.
+- Automatically insert bilingual task examples for eight representative experts when the task body is empty. Existing requests are preserved, with no copying required.
 
-- Start a native independent-agent review with `/review` in the main conversation. Choose a base branch, uncommitted changes, a commit, or custom instructions; receive the report in the same conversation, recover the latest result, or cancel a run.
-- Preserve the original English Codex rubric from a fixed source version, follow the host's Chinese or English preference for reports, and provide bilingual documentation.
-- Supports DSH `0.1.5-rc.2` and requires Node.js ≥ `22.19.0`, Git, native spawn, and a question answerer. Chinese is the default without a saved locale preference; review coverage, finding accuracy, and output language still depend on model behavior.
+## 0.1.41 - 2026-09-12
+
+- Fix navigation from the chat Experts button to Settings → Experts when all experts are disabled, supporting both native DSH dialogs and Codex UI settings pages.
+
+## 0.1.40 - 2026-09-11
+
+- Fix the Experts plugin moving the attachment button to the end of the toolbar, preserving the original host button order.
+
+## 0.1.39 - 2026-09-11
+
+- Add compatibility with DSH `0.1.5-rc.2` while retaining support for previously supported RC versions.
+
+## 0.1.38 - 2026-09-10
+
+- Support DSH `0.1.5-rc.1` while retaining compatibility with validated older versions.
+- Restore focus after closing prompt previews for smoother keyboard navigation.
+- Fix startup warnings and cleanup of previously deleted experts on older DSH versions.
+
+## 0.1.37 - 2026-09-10
+
+This version was not published to npm. Please use `0.1.38` instead.
+
+## 0.1.36 - 2026-09-09
+
+- Create custom experts with your own instructions or adapt built-in experts, then select them using @ or the Experts button.
+- Filter, edit, enable, disable, and permanently delete experts. Drafts are preserved when edits from multiple windows conflict.
+- Improve expert menus and keyboard navigation, and fix prompt viewing, copying, and expert invocation issues.
+
+## 0.1.35 - 2026-09-09
+
+- Improve Expert Settings layout so buttons no longer crowd the title and version, with support for the native DSH interface.
+
+## 0.1.34 - 2026-09-08
+
+- Fix clipped expert menus when many experts are enabled, with scrolling within the available space.
+- Keep expert cards in place when toggling them for smoother consecutive actions.
+
+## 0.1.33 - 2026-09-07
+
+- Added independent in-product update checks with automatic updates when a verified DSH update service is available and a profile-specific manual fallback otherwise.
+- Removed the update-button dependency on `react-dom/client` so the client can load on Hosts that do not register that module id.
+
+## 0.1.32 — 2026-09-05
+
+- Completed bilingual coverage for all 321 experts: English names, descriptions, and personas now render in English, while every expert has a Chinese display name and Chinese persona.
+- Added 48 missing or corrected Chinese personas and localized 32 China-focused experts for English sessions; cleaned residual Chinese fragments from otherwise English personas.
+- Flattened 15 game-development personas to the catalog's supported directory layout and added their Chinese counterparts so view, copy, and summon resolve the same prompt.
+- Added catalog-wide regression tests for bilingual name uniqueness, persona availability, and locale integrity.
+
+## 0.1.31 — 2026-09-05
+
+- Expanded the bundled roster to 321 experts across 22 divisions, merged localized specialists, and redesigned Expert Settings with compact two-column cards, avatars, category search, and enable switches.
+- Unified the persona source used by view, copy, and summon. Chinese sessions now inject the Chinese persona with English fallback, while custom `root` catalogs no longer display unrelated bundled prompts.
+- Kept search and division filters active together, made copied feedback expire automatically, and removed duplicate Chinese assets, the obsolete list view, and unused filter labels.
+- Replaced five bundled Lucide component imports with equivalent inline paths so the client bundle no longer contains the complete icon library.
+- Loaded only frontmatter metadata in bounded chunks when building the roster instead of reading or retaining all 321 persona bodies at startup. Prompt requests now fail explicitly while the shared source is unavailable, preventing custom catalogs from silently falling back to bundled prose, and obsolete list-view locale entries were removed.
+
+## 0.1.30 — 2026-09-03
+
+- When no experts are enabled, the composer Experts button opens Settings → Experts. It only clicks a uniquely labeled Settings trigger and ignores composer dialogs such as the + button.
+
+## 0.1.29 — 2026-09-03
+
+- Updated the DSH development baseline to `0.1.2-rc.1` while retaining the existing `>=0.1.0-rc.5 <0.2.0` peer compatibility range.
+- Added the RC.1-required `dsh-session-projection` and `dsh-util-time` development peers, refreshed the pnpm release-age exemptions and lockfile, and updated manifest regression coverage.
+
+## 0.1.28 — 2026-09-03
+
+- Added GitHub and Issues actions beside the plugin settings title, matching the archive manager's labels and icons.
+- Added DSH `0.1.2-alpha.5` compatibility, removed obsolete renderer/session injection and the unused Runtime bundling exemption, and isolated RC Runtime types from the alpha slot registry.
+- Set DSH peer dependencies to `>=0.1.0-rc.5 <0.2.0`, pinned development DSH packages to `0.1.2-alpha.5`, and added manifest regression coverage.
+- Added a narrowly scoped pnpm release-age exemption for the locked DSH alpha.5 packages so trusted publishing can install the newly released compatibility baseline.
+
+## 0.1.26 — 2026-09-02
+
+- Replaced composer text injection with native expert-reference chips. Chips display only the localized expert name and the host icon; internal identifiers remain private.
+- Kept the expert picker open and displayed a localized error when chip insertion is rejected.
+- Required DSH RC.6 or newer, removed slug-based listing and selection guidance, and made removed-expert chips serializable without exposing their internal identifier.
+- Consecutive expert selections append chips after the existing expert prefix; clipboard and serialized chip text use a non-breaking space separator to preserve visible separation in rendered messages.
+- Normalized expert-name matching consistently and localized duplicate-name catalog errors to the active interface language.
+
+## 0.1.25 — 2026-09-01
+
+- Fixed expert emoji icons disappearing on DSH `0.1.2-alpha.3`, where candidate `icon` values are restricted to built-in reference icon names.
+- Moved each emoji into the visible candidate name and resolved the clean expert name from its slug when picked, so summon instructions remain unchanged.
+- Added regression coverage for Chinese and English labels, clean pick names, and unknown-expert fallback behavior.
+
+Published package: [`@jackchen13755/dsh-expert-agents@0.1.25`](https://www.npmjs.com/package/@jackchen13755/dsh-expert-agents/v/0.1.25).
+
+## 0.1.24 — 2026-09-01
+
+- Fixed raw keys such as `division.design` and `division.engineering` appearing as group titles in the Chinese `@` expert menu.
+- Fixed expert emoji icons taking up space without rendering on Windows by applying a color-emoji font stack to expert menu items.
+- Group titles now follow the active interface language and refresh after locale changes; added coverage for Chinese, English, and unknown-division fallback behavior.
+
+Published package: [`@jackchen13755/dsh-expert-agents@0.1.24`](https://www.npmjs.com/package/@jackchen13755/dsh-expert-agents/v/0.1.24).
+
+## 0.1.23 — 2026-08-31
+
+- Added a compatibility adapter for the DSH settings API so the plugin works with both the legacy RC runtime and `@deepseek-ai/dsh@0.1.2-alpha.2`.
+- Added regression coverage for both settings API shapes and rebuilt the published bundles.
+
+Published package: [`@jackchen13755/dsh-expert-agents@0.1.23`](https://www.npmjs.com/package/@jackchen13755/dsh-expert-agents/v/0.1.23).

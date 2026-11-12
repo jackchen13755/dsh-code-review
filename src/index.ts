@@ -51,8 +51,19 @@ export { ZH_NAME }
 import { createHostLocaleReader, formatHost, localizedExpertDescription, localizedExpertName, matchDivision, renderExpertList, renderSummonResults, type LocaleId } from './i18n.js'
 import { isLiveValue, loadHostModule, readAgencySettings, recoverImportedAgencySettings, settingsNamespaceCompat, setAgencySidebarEntry, setAgencyComposerRecommend, getAgencyEntryLocation, setAgencyEntryLocation } from './settings-compat.js'
 import { AGENCY_LIBRARY_SERVICE, createExpertLibrary, type AgencySettings } from './expert-library.js'
+import { runReview } from './review/runtime.js'
+import { renderOutcome } from './review/outcome.js'
 
 export const name = 'expert-agents'
+
+/**
+ * 走 code-review 审查引擎的专家。
+ *
+ * 这个专家不再套通用 persona 子代理：code-review 的实现自带与 codex-rs 对齐的审查
+ * 提示词、`git diff` 取目标与结构化报告解析，产出比「带 persona 的泛化子代理」稳定
+ * 得多。其余专家维持原有 personality 子代理路径不变。
+ */
+const REVIEW_EXPERT_SLUG = 'engineering-code-reviewer'
 export const inject = ['tools', 'subagents', 'systemPrompt', 'settings', 'webServer']
 
 export const DEFAULT_DIVISIONS = [
@@ -204,6 +215,8 @@ export interface Config {
   /** 可选的正整数绝对子代理深度上限；未设置时沿用 provider 的默认行为。 */
   maxDepth?: number
   sidebarEntry?: boolean
+  /** 「代码审查专家」委派给 code-review 引擎时使用的模型；未设置时继承父会话模型。 */
+  reviewModel?: string
 }
 
 /** 未在配置中显式提供 `root` 时，先读取该环境变量，再使用随包发布的智能体目录。 */
@@ -242,6 +255,7 @@ const configFields: Record<string, unknown> = {
   entryLocation: schema.string(),
   sidebarEntry: schema.boolean(),
   composerRecommend: schema.boolean(),
+  reviewModel: schema.string(),
 }
 for (const [key, field] of [
   ['enabled', schema.array(schema.string()).default([])],
@@ -1044,6 +1058,12 @@ export function apply(ctx: Context, config: Config): void {
     if (maxDepth !== undefined && !caps.depthLimit) throw new Error(formatHost(locale, 'error.providerNoMaxDepth', { provider: config.provider }))
     const expert = resolveExpert((await library.catalog()).experts.filter(expert => !expert.conflict), query, locale)
     if (!enabledSet().has(expert.slug)) throw new Error(formatHost(locale, 'error.expertDisabled', { name: localizedExpertName(expert, locale) }))
+    // 代码审查专家：改走 code-review 引擎（默认审当前工作树改动），不再起通用子代理。
+    if (expert.slug === REVIEW_EXPERT_SLUG) {
+      const reviewSignal = exec.signal ?? new AbortController().signal
+      const outcome = await runReview(ctx, exec.agent, { mode: 'worktree' }, reviewSignal, undefined, config.reviewModel, locale)
+      return { expert: localizedExpertName(expert, locale), answer: renderOutcome(outcome, locale) }
+    }
     const { prompt: persona } = await personaSource.getPrompt(expert.slug, expert.division, locale)
     const run = await startSubagentRun(config.provider, {
       slug: expert.slug,

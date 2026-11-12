@@ -1,0 +1,217 @@
+import { v as readExpertPrompt, y as readLocalizedExpertPrompt } from "./index-BfywisPO.js";
+import { z } from "zod";
+import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
+import { Context } from "@deepseek-ai/cordis";
+declare const COORDINATOR_MODES: readonly ["template", "custom"];
+type CoordinatorMode = (typeof COORDINATOR_MODES)[number];
+declare const COORDINATOR_TEMPLATE_IDS: readonly ["general", "product", "technical", "content", "data", "research"];
+type CoordinatorTemplateId = (typeof COORDINATOR_TEMPLATE_IDS)[number];
+declare const TEAM_ENGINE_STATES: readonly ["unsupported", "disabled", "enabled"];
+type TeamEngineState = (typeof TEAM_ENGINE_STATES)[number];
+declare const TEAM_ENGINE_MODES: readonly ["subagent", "native"];
+type TeamEngineMode = (typeof TEAM_ENGINE_MODES)[number];
+declare const teamInputSchema: z.ZodObject<{
+  id: z.ZodOptional<z.ZodString>;
+  builtin: z.ZodOptional<z.ZodBoolean>;
+  name: z.ZodString;
+  description: z.ZodString;
+  tags: z.ZodArray<z.ZodString>;
+  goal: z.ZodString;
+  constraints: z.ZodString;
+  deliveryRequirements: z.ZodString;
+  members: z.ZodArray<z.ZodObject<{
+    expertSlug: z.ZodString;
+    duty: z.ZodString;
+    instructions: z.ZodString;
+  }, z.core.$strict>>;
+  examples: z.ZodArray<z.ZodString>;
+  coordinatorMode: z.ZodType<CoordinatorMode>;
+  coordinatorTemplateId: z.ZodType<CoordinatorTemplateId>;
+  coordinatorTemplateVersion: z.ZodLiteral<1>;
+  coordinatorPrompt: z.ZodString;
+}, z.core.$strict>;
+type TeamInput = z.infer<typeof teamInputSchema>;
+declare const teamSnapshotSchema: z.ZodObject<{
+  teams: z.ZodArray<z.ZodIntersection<z.ZodObject<{
+    id: z.ZodOptional<z.ZodString>;
+    builtin: z.ZodOptional<z.ZodBoolean>;
+    name: z.ZodString;
+    description: z.ZodString;
+    tags: z.ZodArray<z.ZodString>;
+    goal: z.ZodString;
+    constraints: z.ZodString;
+    deliveryRequirements: z.ZodString;
+    members: z.ZodArray<z.ZodObject<{
+      expertSlug: z.ZodString;
+      duty: z.ZodString;
+      instructions: z.ZodString;
+    }, z.core.$strict>>;
+    examples: z.ZodArray<z.ZodString>;
+    coordinatorMode: z.ZodType<CoordinatorMode>;
+    coordinatorTemplateId: z.ZodType<CoordinatorTemplateId>;
+    coordinatorTemplateVersion: z.ZodLiteral<1>;
+    coordinatorPrompt: z.ZodString;
+  }, z.core.$strict>, z.ZodObject<{
+    id: z.ZodString;
+    builtin: z.ZodBoolean;
+  }, z.core.$strip>>>;
+  enabledTeams: z.ZodArray<z.ZodString>;
+  enabledExperts: z.ZodArray<z.ZodString>;
+  revision: z.ZodNumber;
+  engine: z.ZodOptional<z.ZodObject<{
+    state: z.ZodType<TeamEngineState>;
+    mode: z.ZodType<TeamEngineMode>;
+    reason: z.ZodString;
+    recommendation: z.ZodString;
+  }, z.core.$strip>>;
+  nativeMembers: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+}, z.core.$strip>;
+type TeamSnapshot = z.infer<typeof teamSnapshotSchema>;
+declare const customExpertInputSchema: z.ZodObject<{
+  slug: z.ZodOptional<z.ZodString>;
+  name: z.ZodString;
+  description: z.ZodString;
+  division: z.ZodString;
+  emoji: z.ZodPipe<z.ZodDefault<z.ZodString>, z.ZodTransform<string, string>>;
+  avatar: z.ZodDefault<z.ZodNumber>;
+  prompt: z.ZodString;
+}, z.core.$strict>;
+type CustomExpertInput = z.input<typeof customExpertInputSchema>;
+declare const catalogSnapshotSchema: z.ZodObject<{
+  experts: z.ZodArray<z.ZodObject<{
+    slug: z.ZodString;
+    name: z.ZodString;
+    nameEn: z.ZodString;
+    description: z.ZodString;
+    descriptionEn: z.ZodString;
+    emoji: z.ZodString;
+    division: z.ZodString;
+    divisionZh: z.ZodString;
+    conflict: z.ZodOptional<z.ZodBoolean>;
+    custom: z.ZodDefault<z.ZodBoolean>;
+    avatar: z.ZodOptional<z.ZodNumber>;
+  }, z.core.$strip>>;
+  enabled: z.ZodArray<z.ZodString>;
+  revision: z.ZodNumber;
+}, z.core.$strip>;
+type CatalogSnapshot = z.infer<typeof catalogSnapshotSchema>;
+declare const storedProposalItemSchema: z.ZodUnion<readonly [z.ZodObject<{
+  kind: z.ZodLiteral<"expert">;
+  data: z.ZodObject<{
+    slug: z.ZodOptional<z.ZodString>;
+    name: z.ZodString;
+    description: z.ZodString;
+    division: z.ZodString;
+    emoji: z.ZodPipe<z.ZodDefault<z.ZodString>, z.ZodTransform<string, string>>;
+    avatar: z.ZodDefault<z.ZodNumber>;
+    prompt: z.ZodString;
+  }, z.core.$strict>;
+  confirmed: z.ZodOptional<z.ZodBoolean>;
+  sessionId: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>, z.ZodObject<{
+  kind: z.ZodLiteral<"team">;
+  data: z.ZodObject<{
+    id: z.ZodOptional<z.ZodString>;
+    builtin: z.ZodOptional<z.ZodBoolean>;
+    name: z.ZodString;
+    description: z.ZodString;
+    tags: z.ZodArray<z.ZodString>;
+    goal: z.ZodString;
+    constraints: z.ZodString;
+    deliveryRequirements: z.ZodString;
+    members: z.ZodArray<z.ZodObject<{
+      expertSlug: z.ZodString;
+      duty: z.ZodString;
+      instructions: z.ZodString;
+    }, z.core.$strict>>;
+    examples: z.ZodArray<z.ZodString>;
+    coordinatorMode: z.ZodType<CoordinatorMode>;
+    coordinatorTemplateId: z.ZodType<CoordinatorTemplateId>;
+    coordinatorTemplateVersion: z.ZodLiteral<1>;
+    coordinatorPrompt: z.ZodString;
+  }, z.core.$strict>;
+  memberReasons: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+  confirmed: z.ZodOptional<z.ZodBoolean>;
+  sessionId: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>]>;
+type StoredProposal = z.infer<typeof storedProposalItemSchema>;
+declare const latestProposalSchema: z.ZodNullable<z.ZodObject<{
+  id: z.ZodString;
+  proposal: z.ZodUnion<readonly [z.ZodObject<{
+    kind: z.ZodLiteral<"expert">;
+    data: z.ZodObject<{
+      slug: z.ZodOptional<z.ZodString>;
+      name: z.ZodString;
+      description: z.ZodString;
+      division: z.ZodString;
+      emoji: z.ZodPipe<z.ZodDefault<z.ZodString>, z.ZodTransform<string, string>>;
+      avatar: z.ZodDefault<z.ZodNumber>;
+      prompt: z.ZodString;
+    }, z.core.$strict>;
+    confirmed: z.ZodOptional<z.ZodBoolean>;
+    sessionId: z.ZodOptional<z.ZodString>;
+  }, z.core.$strip>, z.ZodObject<{
+    kind: z.ZodLiteral<"team">;
+    data: z.ZodObject<{
+      id: z.ZodOptional<z.ZodString>;
+      builtin: z.ZodOptional<z.ZodBoolean>;
+      name: z.ZodString;
+      description: z.ZodString;
+      tags: z.ZodArray<z.ZodString>;
+      goal: z.ZodString;
+      constraints: z.ZodString;
+      deliveryRequirements: z.ZodString;
+      members: z.ZodArray<z.ZodObject<{
+        expertSlug: z.ZodString;
+        duty: z.ZodString;
+        instructions: z.ZodString;
+      }, z.core.$strict>>;
+      examples: z.ZodArray<z.ZodString>;
+      coordinatorMode: z.ZodType<CoordinatorMode>;
+      coordinatorTemplateId: z.ZodType<CoordinatorTemplateId>;
+      coordinatorTemplateVersion: z.ZodLiteral<1>;
+      coordinatorPrompt: z.ZodString;
+    }, z.core.$strict>;
+    memberReasons: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    confirmed: z.ZodOptional<z.ZodBoolean>;
+    sessionId: z.ZodOptional<z.ZodString>;
+  }, z.core.$strip>]>;
+  timestamp: z.ZodNumber;
+}, z.core.$strip>>;
+type LatestProposal = z.infer<typeof latestProposalSchema>;
+/** 供客户端读取和保存已启用专家的顶层 Host Remote 服务。 */
+declare class AgencyAgentsRemote extends TypertRemoteService {
+  static inject: string[];
+  constructor(ctx: Context);
+  private teams;
+  getTeams(): Promise<TeamSnapshot>;
+  saveTeam(team: TeamInput, enabled: boolean, expectedRevision: number): Promise<TeamSnapshot>;
+  setTeamEnabled(id: string, enabled: boolean, expectedRevision: number): Promise<TeamSnapshot>;
+  deleteTeam(id: string, expectedRevision: number): Promise<TeamSnapshot>;
+  private library;
+  /** 返回动态名册，不预加载任何专家提示词正文。 */
+  getCatalog(): Promise<CatalogSnapshot>;
+  getCustomExpert(slug: string): Promise<CustomExpertInput>;
+  /** 新建或更新自定义专家，同时提交启用状态；过期修订号拒绝写入。 */
+  saveCustomExpert(expert: CustomExpertInput, enabled: boolean, expectedRevision: number): Promise<CatalogSnapshot>;
+  deleteCustomExpert(slug: string, expectedRevision: number): Promise<CatalogSnapshot>;
+  /** 返回配置中记录的启用项以兼容旧调用方；实际可召唤项请读取 getCatalog().enabled。 */
+  getEnabled(): {
+    enabled: string[];
+    revision: number;
+  };
+  /** 整体替换启用的专家 slug 列表。 */
+  setEnabled(enabled: string[], expectedRevision: number): Promise<{
+    enabled: string[];
+    revision: number;
+  }>;
+  /** 按需读取一位专家的 persona 正文，避免将完整提示词随客户端名册预加载。 */
+  getPrompt(slug: string, division: string): Promise<{
+    prompt: string;
+  }>;
+  /** 获取暂存的专家或专家团提案，用于前端弹窗回显。 */
+  getPendingProposal(id: string): Promise<StoredProposal | null>;
+  /** 获取自某时间戳之后产生的最新已确认专家或专家团草案，支持前端自动呼出弹窗。草案打磨期不返回。 */
+  getLatestProposal(afterTimestamp: number, sessionId?: string): Promise<LatestProposal>;
+}
+export { AgencyAgentsRemote as default, readExpertPrompt, readLocalizedExpertPrompt };

@@ -136,7 +136,6 @@
     "react": "^18.2.0",
     "@deepseek-ai/dsh-session": ">=0.2.0-rc.1 <0.3.0-0",
     "@deepseek-ai/dsh-agent": ">=0.2.0-rc.1 <0.3.0-0",
-    "@deepseek-ai/dsh-working-directory": ">=0.2.0-rc.1 <0.3.0-0",
     "@deepseek-ai/dsh-user-questions": ">=0.2.0-rc.1 <0.3.0-0"
   },
   "peerDependenciesMeta": {

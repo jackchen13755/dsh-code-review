@@ -10,7 +10,9 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
-import type {} from '@deepseek-ai/dsh-working-directory';
+// 注：原先这里有一行 `import type {} from '@deepseek-ai/dsh-working-directory'` 的类型增补。
+// 该包在 npm 上没有落在 `>=0.2.0-rc.1 <0.3.0-0` 内的版本（只有 0.2.1-alpha.2 / 0.2.2-rc.2），
+// 会让依赖解析直接失败；而本文件本来就用鸭子类型访问该可选服务，不需要增补，故移除。
 
 export async function resolveSessionCwd(ctx: Context, agent: Agent, signal?: AbortSignal): Promise<string | undefined> {
   try {
