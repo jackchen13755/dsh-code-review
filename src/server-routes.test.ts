@@ -1,9 +1,15 @@
 import { describe, it, expect, vi } from 'vitest'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { apply } from './index.js'
 import type { Context } from '@deepseek-ai/cordis'
 
 describe('agency-agents HTTP 管理路由 (sidebar-entry)', () => {
   function setupHarness(configOverrides: Record<string, unknown> = {}, extraCtx: Record<string, unknown> = {}) {
+    // 与真实 ~/.dsh 隔离：插件会读 <profileHome>/agency-settings.json 里的 entryLocation /
+    // sidebarEntry，真实文件被应用写过（如 entryLocation: 'sidebar'）时断言会随机器漂移。
+    const tmpHome = mkdtempSync(join(tmpdir(), 'agency-routes-'))
     const routes = new Map<string, (req: any, res: any) => Promise<void>>()
     const mockSettingsState: Record<string, any> = {
       enabled: [],
@@ -42,7 +48,7 @@ describe('agency-agents HTTP 管理路由 (sidebar-entry)', () => {
       reflect: { provide: vi.fn() },
       effect: vi.fn((fn: () => any) => fn()),
       on: vi.fn(),
-      get: vi.fn((name: string) => (extraCtx as any)[name]),
+      get: vi.fn((name: string) => (extraCtx as any)[name] ?? (name === 'profileContext' ? { home: tmpHome } : undefined)),
       logger: { warn: vi.fn() },
     } as unknown as Context
 
